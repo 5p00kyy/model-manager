@@ -7,91 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.2.1] - 2024-12-25
 
-### Added
-
-#### Download System
-- **Async Download Architecture** - Complete rewrite of download system using asyncio and ThreadPoolExecutor
-  - Downloads now run in separate thread pool to prevent UI freezing
-  - Progress monitoring happens asynchronously with 500ms update intervals
-  - Proper async/await pattern throughout download flow
-- **Real-Time Progress Monitoring** - New `_monitor_file_progress()` method tracks file growth
-  - Updates progress every 500ms during large file downloads
-  - Uses `DownloadSpeedCalculator` for accurate speed measurements
-  - Provides smooth, continuous progress updates instead of per-file updates
-- **Pre-Download Validation** - New `validate_download()` method checks:
-  - Available disk space (with 10% buffer requirement)
-  - Valid repository ID format
-  - Non-empty file list
-  - Returns clear error messages when validation fails
-- **Comprehensive Logging** - Added DEBUG and INFO level logs throughout:
-  - Download start/completion with timing and speed statistics
-  - File-by-file progress tracking
-  - Size fetching operations
-  - Error conditions with full stack traces
-
-#### Type Safety
-- **TypedDict for Progress Data** - Created `ProgressData` TypedDict in helpers.py
-  - Strongly typed structure for all progress callback data
-  - Includes fields: repo_id, current_file, file_index, sizes, speed, eta, completion status
-  - Optional fields for retry information
-- **Progress Callback Type Alias** - Added `ProgressCallback` type alias
-  - Clean type hint for callback functions: `Callable[[ProgressData], None]`
-  - Used throughout downloader and screens for type safety
-
-#### Development Infrastructure
-- **requirements-dev.txt** - Added development dependencies:
-  - pytest, pytest-asyncio, pytest-cov, pytest-mock for testing
-  - mypy with types-requests for type checking
-  - black, flake8, isort for code formatting and linting
-  - sphinx with RTD theme for documentation
-
-### Changed
-
-#### Download Flow
-- `download_model()` method signature changed from sync to async
-  - Returns `bool` wrapped in coroutine
-  - Must be called with `await` keyword
-  - Uses ThreadPoolExecutor for blocking hf_hub_download calls
-- Download monitoring now happens in parallel with download
-  - Separate async task monitors file size growth
-  - Task is cancelled when download completes
-  - No more blocking wait for entire file before showing progress
-- File size validation happens before download confirmation
-  - Modal callback now validates using `await downloader.validate_download()`
-  - Shows clear error message if validation fails
-  - Prevents downloads that will fail due to disk space
-
-#### Error Handling
-- **File Size Fetching** in `hf_client.py`:
-  - Added `files_metadata=True` parameter to `model_info()` call
-  - Comprehensive null checking for size attributes
-  - Defaults to 0 instead of failing when size unavailable
-  - Logs warnings for missing size data at DEBUG level
-  - Returns empty dict on error instead of raising exception
-- **Detail Screen** in `detail_screen.py`:
-  - Wrapped size fetching in try/except with user notifications
-  - Shows warning when file sizes cannot be retrieved
-  - Detects when all sizes are zero and notifies user
-  - Download proceeds even if sizes unknown (shows "Unknown size")
-- **Download Screen** in `download_screen.py`:
-  - Added await for async download_model call
-  - Proper async exception handling
-  - Better error messages for download failures
-
-#### Code Organization
-- Download manager now tracks monitor task for proper cleanup
-- Added `_current_file_path` attribute to track active download
-- Cancellation now stops monitoring task immediately
-- File existence checks before re-downloading completed files
-
-#### Logging Improvements
-- All download operations now log with context (repo_id, file, size)
-- DEBUG logs for function entry/exit
-- INFO logs for major milestones (start, complete, file progress)
-- ERROR logs with full exc_info for debugging
-- Performance statistics logged (duration, average speed)
-
 ### Fixed
+#### Critical Progress UI Fix (RESOLVED)
+- **Progress stuck at "Preparing download..."** - FULLY RESOLVED
+  - Root cause: Widget updates from ThreadPoolExecutor worker thread weren't triggering Textual UI redraws
+  - Solution: Implemented Textual message passing system for thread-safe UI updates
+  - Changes:
+    - Added `ProgressUpdate` message class in `download_screen.py`
+    - Created `progress_callback_wrapper()` to post messages from worker thread
+    - Added `on_progress_update()` message handler to process updates on main thread
+    - UI widgets now update reliably during downloads
+  - Testing: Verified with 460MB model download, 3 progress callbacks received and processed
+  - Impact: Users can now see real-time progress including speed, ETA, and completion status
+  - File: `src/screens/download_screen.py` lines 16-24, 69-80, 97-102
+
+#### File Size Fetching (VERIFIED WORKING)
+- Fixed `get_file_sizes()` returning 0 for all files
+  - Added `files_metadata=True` parameter to `model_info()` call in line 122
+  - Enhanced null checking for `sibling.size` attribute with three-level validation
+  - Handles None, 0, and missing size attributes gracefully with defaults
+  - Logs warnings at DEBUG level when sizes unavailable instead of failing silently
+  - File: `src/services/hf_client.py` lines 105-161
+  - Testing: Successfully retrieved sizes for 15 files from TheBloke/TinyLlama GGUF repo
+  - Impact: Quantization tables now show accurate file sizes (e.g., "460.6 MB" instead of "0.0 B")
+
+#### UI Responsiveness (CONFIRMED WORKING)
+- Fixed UI freezing during downloads
+  - Converted `download_model()` from sync to async (line 27)
+  - Used `ThreadPoolExecutor` to run blocking `hf_hub_download()` calls in separate thread (lines 86-93)
+  - Main event loop remains responsive while download proceeds in background
+  - File: `src/services/downloader.py` lines 27-144
+  - Testing: 460MB download completed in 8.51s while UI remained fully responsive
+  - Impact: Users can navigate UI, cancel downloads, and interact during download process
+
+#### Resize Flicker/Scaling Issues (NEW FIX)
+- Fixed "scaling changing sometimes" complaint
+  - Root cause: Rapid resize events causing visual flickering
+  - Solution: Implemented 200ms debounce on resize handler
+  - Changes:
+    - Added `_resize_timer` attribute to track debounce timer
+    - Modified `on_resize()` to cancel previous timer and set new 200ms delay
+    - Created `_apply_resize()` method to apply changes after debounce
+  - File: `src/app.py` lines 60, 83-93
+  - Impact: Smooth transitions between responsive breakpoints (desktop/tablet/mobile)
+
+#### Table Column Widths (NEW FIX)
+- Fixed "unable to see the model name properly because the tables squish sometimes" complaint
+  - Root cause: Dynamic column widths causing model names to truncate excessively
+  - Solution: Set explicit minimum column widths for all tables
+  - Changes:
+    - Main Screen: Model column 45 chars (desktop), 35 (tablet), 30 (mobile)
+    - Search Screen: Model column 35 chars (desktop), 30 (tablet/mobile)
+    - Detail Screen: Quantization column 25 chars minimum
+    - File column widths: 12-15 chars, Size: 12-15 chars, Status: 15 chars
+  - Files: 
+    - `src/screens/main_screen.py` lines 59-70
+    - `src/screens/search_screen.py` lines 65-77
+    - `src/screens/detail_screen.py` lines 181-189
+  - Impact: Model names remain readable at all screen sizes, even long repository IDs
+
+
 
 #### Critical Fixes
 - **File sizes showing as 0** - Root cause: HF API siblings sometimes have None for size

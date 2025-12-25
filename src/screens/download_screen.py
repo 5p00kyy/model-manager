@@ -4,6 +4,7 @@ from typing import List
 
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical
+from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import Header, ProgressBar, Label, Button
 from textual.binding import Binding
@@ -14,6 +15,12 @@ from src.exceptions import ModelManagerException, DownloadError
 
 class DownloadScreen(Screen):
     """Screen showing download progress."""
+
+    class ProgressUpdate(Message):
+        """Message sent when download progress updates."""
+        def __init__(self, progress_data: dict) -> None:
+            super().__init__()
+            self.progress_data = progress_data
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
@@ -68,10 +75,17 @@ class DownloadScreen(Screen):
             logger.info(f"Starting download worker for {self.repo_id}")
             app = self.app
 
+            # Create progress callback wrapper that posts messages
+            def progress_callback_wrapper(progress_data: dict) -> None:
+                """Wrapper to post progress updates as messages."""
+                logger.debug(f"Progress callback wrapper called: {progress_data.get('current_file', 'N/A')}")
+                # Post message to main thread for UI update
+                self.post_message(self.ProgressUpdate(progress_data))
+
             # Await the now-async download_model method
             logger.info("Calling download_model...")
             success = await app.downloader.download_model(
-                self.repo_id, self.files, progress_callback=self.update_progress
+                self.repo_id, self.files, progress_callback=progress_callback_wrapper
             )
             
             logger.info(f"Download completed: success={success}")
@@ -94,13 +108,20 @@ class DownloadScreen(Screen):
             self.download_active = False
             self.update_error(f"Unexpected error: {e}")
 
+    def on_progress_update(self, message: ProgressUpdate) -> None:
+        """Handle progress update messages from worker thread."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"UI UPDATE: {message.progress_data.get('current_file', 'unknown')} - {message.progress_data.get('overall_downloaded', 0)}/{message.progress_data.get('overall_total', 0)} bytes")
+        self.update_progress(message.progress_data)
+
     def update_progress(self, progress_data: dict):
         """Update progress display."""
         import logging
         from src.utils.helpers import format_size, format_speed, format_time
         
         logger = logging.getLogger(__name__)
-        logger.info(f"PROGRESS CALLBACK: {progress_data.get('current_file', 'unknown')} - {progress_data.get('overall_downloaded', 0)}/{progress_data.get('overall_total', 0)} bytes")
+        logger.debug(f"PROGRESS CALLBACK: {progress_data.get('current_file', 'unknown')} - {progress_data.get('overall_downloaded', 0)}/{progress_data.get('overall_total', 0)} bytes")
         
         try:
             # Overall progress

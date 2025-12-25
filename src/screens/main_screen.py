@@ -56,16 +56,22 @@ class MainScreen(Screen):
         # Clear existing columns
         table.clear(columns=True)
 
-        # Add columns based on available width
+        # Add columns based on available width with minimum widths for readability
         if width >= 80:
-            # Desktop: All columns
-            table.add_columns("Model", "Files", "Size", "Status")
+            # Desktop: All columns with proper widths
+            table.add_column("Model", width=45)
+            table.add_column("Files", width=12)
+            table.add_column("Size", width=12)
+            table.add_column("Status", width=15)
         elif width >= 60:
             # Tablet: Skip Files column
-            table.add_columns("Model", "Size", "Status")
+            table.add_column("Model", width=35)
+            table.add_column("Size", width=12)
+            table.add_column("Status", width=15)
         else:
             # Mobile: Essential only
-            table.add_columns("Model", "Status")
+            table.add_column("Model", width=30)
+            table.add_column("Status", width=15)
 
         table.cursor_type = "row"
 

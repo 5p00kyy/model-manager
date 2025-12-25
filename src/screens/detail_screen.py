@@ -177,13 +177,16 @@ class DetailScreen(Screen):
         # Clear and rebuild columns
         table.clear(columns=True)
 
-        # Add columns based on terminal width
+        # Add columns based on terminal width with minimum widths
         if width >= 60:
-            # Desktop/Tablet: All columns
-            table.add_columns("Quantization", "Files", "Size")
+            # Desktop/Tablet: All columns with proper widths
+            table.add_column("Quantization", width=25)
+            table.add_column("Files", width=15)
+            table.add_column("Size", width=15)
         else:
             # Mobile: Essential columns only
-            table.add_columns("Quantization", "Size")
+            table.add_column("Quantization", width=25)
+            table.add_column("Size", width=15)
 
         table.cursor_type = "row"
 

@@ -62,16 +62,22 @@ class SearchScreen(Screen):
         # Clear existing columns
         table.clear(columns=True)
 
-        # Add columns based on available width
+        # Add columns based on available width with minimum widths for readability
         if width >= 80:
-            # Desktop: All columns
-            table.add_columns("Model", "Author", "Downloads", "Description")
+            # Desktop: All columns with proper widths
+            table.add_column("Model", width=35)
+            table.add_column("Author", width=20)
+            table.add_column("Downloads", width=15)
+            table.add_column("Description", width=None)  # Flexible width
         elif width >= 60:
             # Tablet: Skip Description
-            table.add_columns("Model", "Author", "Downloads")
+            table.add_column("Model", width=30)
+            table.add_column("Author", width=18)
+            table.add_column("Downloads", width=15)
         else:
             # Mobile: Essential only
-            table.add_columns("Model", "Downloads")
+            table.add_column("Model", width=30)
+            table.add_column("Downloads", width=15)
 
         table.cursor_type = "row"
 
