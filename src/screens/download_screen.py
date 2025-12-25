@@ -100,55 +100,58 @@ class DownloadScreen(Screen):
         from src.utils.helpers import format_size, format_speed, format_time
         
         logger = logging.getLogger(__name__)
-        logger.debug(f"Progress update: {progress_data.get('current_file', 'unknown')} - {progress_data.get('overall_downloaded', 0)} / {progress_data.get('overall_total', 0)}")
+        logger.info(f"PROGRESS CALLBACK: {progress_data.get('current_file', 'unknown')} - {progress_data.get('overall_downloaded', 0)}/{progress_data.get('overall_total', 0)} bytes")
+        
+        try:
+            # Overall progress
+            overall_pct = (
+                progress_data.get("overall_downloaded", 0)
+                / max(progress_data.get("overall_total", 1), 1)
+                * 100
+            )
+            overall_bar = self.query_one("#overall-progress", ProgressBar)
+            overall_bar.update(progress=overall_pct)
 
-        # Overall progress
-        overall_pct = (
-            progress_data.get("overall_downloaded", 0)
-            / max(progress_data.get("overall_total", 1), 1)
-            * 100
-        )
-        overall_bar = self.query_one("#overall-progress", ProgressBar)
-        overall_bar.update(progress=overall_pct)
+            # Progress label
+            progress_label = self.query_one("#progress-label", Label)
+            downloaded = format_size(progress_data.get("overall_downloaded", 0))
+            total = format_size(progress_data.get("overall_total", 0))
+            file_idx = progress_data.get("current_file_index", 0)
+            total_files = progress_data.get("total_files", 0)
+            progress_label.update(f"{downloaded} / {total}  ({file_idx}/{total_files} files)")
 
-        # Progress label
-        progress_label = self.query_one("#progress-label", Label)
-        downloaded = format_size(progress_data.get("overall_downloaded", 0))
-        total = format_size(progress_data.get("overall_total", 0))
-        file_idx = progress_data.get("current_file_index", 0)
-        total_files = progress_data.get("total_files", 0)
-        progress_label.update(f"{downloaded} / {total}  ({file_idx}/{total_files} files)")
+            # Current file
+            current_file = progress_data.get("current_file", "")
+            file_label = self.query_one("#file-label", Label)
+            file_label.update(f"Current: {current_file}")
 
-        # Current file
-        current_file = progress_data.get("current_file", "")
-        file_label = self.query_one("#file-label", Label)
-        file_label.update(f"Current: {current_file}")
+            # File progress
+            file_pct = (
+                progress_data.get("current_file_downloaded", 0)
+                / max(progress_data.get("current_file_total", 1), 1)
+                * 100
+            )
+            file_bar = self.query_one("#file-progress", ProgressBar)
+            file_bar.update(progress=file_pct)
 
-        # File progress
-        file_pct = (
-            progress_data.get("current_file_downloaded", 0)
-            / max(progress_data.get("current_file_total", 1), 1)
-            * 100
-        )
-        file_bar = self.query_one("#file-progress", ProgressBar)
-        file_bar.update(progress=file_pct)
+            # Speed
+            speed = progress_data.get("speed", 0)
+            speed_label = self.query_one("#speed-label", Label)
+            speed_label.update(f"Speed: {format_speed(speed)}")
 
-        # Speed
-        speed = progress_data.get("speed", 0)
-        speed_label = self.query_one("#speed-label", Label)
-        speed_label.update(f"Speed: {format_speed(speed)}")
+            # ETA
+            eta = progress_data.get("eta", 0)
+            eta_label = self.query_one("#eta-label", Label)
+            if eta > 0:
+                eta_label.update(f"ETA: {format_time(eta)}")
+            else:
+                eta_label.update("ETA: Calculating...")
 
-        # ETA
-        eta = progress_data.get("eta", 0)
-        eta_label = self.query_one("#eta-label", Label)
-        if eta > 0:
-            eta_label.update(f"ETA: {format_time(eta)}")
-        else:
-            eta_label.update("ETA: Calculating...")
-
-        # Update status
-        status_label = self.query_one("#status-label", Label)
-        status_label.update("Downloading...")
+            # Update status
+            status_label = self.query_one("#status-label", Label)
+            status_label.update("Downloading...")
+        except Exception as e:
+            logger.error(f"Error updating progress UI: {e}", exc_info=True)
 
     def update_completion(self):
         """Update display on completion."""
