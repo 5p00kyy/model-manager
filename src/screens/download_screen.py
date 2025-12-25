@@ -52,19 +52,29 @@ class DownloadScreen(Screen):
 
     def on_mount(self) -> None:
         """Handle screen mount."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"DownloadScreen mounted: repo_id={self.repo_id}, files={len(self.files)}")
+        
         self.download_active = True
         self.run_worker(self.download_worker(), exclusive=True)
 
     async def download_worker(self):
         """Worker to handle the download."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
+            logger.info(f"Starting download worker for {self.repo_id}")
             app = self.app
 
             # Await the now-async download_model method
+            logger.info("Calling download_model...")
             success = await app.downloader.download_model(
                 self.repo_id, self.files, progress_callback=self.update_progress
             )
-
+            
+            logger.info(f"Download completed: success={success}")
             self.download_active = False
 
             if success:
@@ -72,18 +82,25 @@ class DownloadScreen(Screen):
             else:
                 self.update_error()
         except DownloadError as e:
+            logger.error(f"DownloadError: {e}", exc_info=True)
             self.download_active = False
             self.update_error(str(e))
         except ModelManagerException as e:
+            logger.error(f"ModelManagerException: {e}", exc_info=True)
             self.download_active = False
             self.update_error(str(e))
         except Exception as e:
+            logger.error(f"Unexpected error: {e}", exc_info=True)
             self.download_active = False
             self.update_error(f"Unexpected error: {e}")
 
     def update_progress(self, progress_data: dict):
         """Update progress display."""
+        import logging
         from src.utils.helpers import format_size, format_speed, format_time
+        
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Progress update: {progress_data.get('current_file', 'unknown')} - {progress_data.get('overall_downloaded', 0)} / {progress_data.get('overall_total', 0)}")
 
         # Overall progress
         overall_pct = (
