@@ -45,9 +45,7 @@ class StyledButton(Button):
             ValueError: If variant is not in VALID_VARIANTS
         """
         if variant not in self.VALID_VARIANTS:
-            raise ValueError(
-                f"Invalid variant '{variant}'. Must be one of {self.VALID_VARIANTS}"
-            )
+            raise ValueError(f"Invalid variant '{variant}'. Must be one of {self.VALID_VARIANTS}")
 
         super().__init__(label, name=name, id=id, classes=classes, disabled=disabled)
 

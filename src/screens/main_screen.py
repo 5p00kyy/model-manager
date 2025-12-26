@@ -183,7 +183,9 @@ class MainScreen(Screen):
                 self._do_delete(repo_id)
 
         self.app.push_screen(
-            Modal(title_text="Confirm Deletion", message=f"Are you sure you want to delete {repo_id}?"),
+            Modal(
+                title_text="Confirm Deletion", message=f"Are you sure you want to delete {repo_id}?"
+            ),
             callback=handle_confirm,
         )
 

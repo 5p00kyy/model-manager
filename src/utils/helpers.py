@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple, TypedDict, Callable
 # Type definitions for download progress
 class ProgressData(TypedDict, total=False):
     """Structure for download progress updates."""
+
     repo_id: str
     current_file: str
     current_file_index: int

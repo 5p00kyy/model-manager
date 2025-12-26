@@ -112,7 +112,7 @@ class HuggingFaceClient:
         Returns:
             Dictionary mapping filename to size in bytes.
             Returns empty dict on error.
-            
+
         Note:
             Some files may have size=0 if metadata is not available from HF API.
             This is not necessarily an error condition.
@@ -121,18 +121,18 @@ class HuggingFaceClient:
             # Request file metadata explicitly
             model_info = self.api.model_info(repo_id, files_metadata=True)
             sizes: dict[str, int] = {}
-            
+
             if hasattr(model_info, "siblings") and model_info.siblings:
                 logger.debug(f"Processing {len(model_info.siblings)} files for {repo_id}")
-                
+
                 for sibling in model_info.siblings:
                     # More robust attribute checking
                     if not hasattr(sibling, "rfilename"):
                         logger.warning(f"Sibling missing rfilename attribute in {repo_id}")
                         continue
-                    
+
                     filename = sibling.rfilename
-                    
+
                     # Check for size attribute and handle None/missing cases
                     if hasattr(sibling, "size"):
                         if sibling.size is not None and sibling.size > 0:
@@ -152,10 +152,10 @@ class HuggingFaceClient:
                         logger.warning(f"File {filename}: no size attribute, defaulting to 0")
             else:
                 logger.warning(f"No siblings found for {repo_id}")
-            
+
             logger.info(f"Fetched sizes for {len(sizes)} files in {repo_id}")
             return sizes
-            
+
         except Exception as e:
             logger.error(f"Error getting file sizes for {repo_id}: {e}", exc_info=True)
             return {}

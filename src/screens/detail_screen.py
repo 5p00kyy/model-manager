@@ -114,41 +114,33 @@ class DetailScreen(Screen):
             from src.utils.helpers import group_multipart_files
 
             grouped = group_multipart_files(gguf_files)
-            
+
             # Get file sizes with error handling
             try:
                 file_sizes = app.hf_client.get_file_sizes(repo_id)
                 if not file_sizes:
                     self.app.notify(
-                        "Could not fetch file sizes - sizes may show as 0", 
-                        severity="warning"
+                        "Could not fetch file sizes - sizes may show as 0", severity="warning"
                     )
                     file_sizes = {}
             except Exception as size_error:
-                self.app.notify(
-                    f"Error fetching file sizes: {size_error}", 
-                    severity="warning"
-                )
+                self.app.notify(f"Error fetching file sizes: {size_error}", severity="warning")
                 file_sizes = {}
 
             self.quant_groups = []
             all_sizes_zero = True
-            
+
             for name, files in grouped.items():
                 total_size = sum(file_sizes.get(f, 0) for f in files)
                 if total_size > 0:
                     all_sizes_zero = False
-                self.quant_groups.append({
-                    "name": name, 
-                    "files": files, 
-                    "total_size": total_size
-                })
+                self.quant_groups.append({"name": name, "files": files, "total_size": total_size})
 
             # Warn if all sizes are zero
             if all_sizes_zero and file_sizes:
                 self.app.notify(
                     "File sizes unavailable from API - download will proceed but size is unknown",
-                    severity="warning"
+                    severity="warning",
                 )
 
             # Update table
@@ -233,7 +225,7 @@ class DetailScreen(Screen):
         repo_id = self.model_data["repo_id"]
         files = quant["files"]
         total_size = quant["total_size"]
-        
+
         from src.utils.helpers import format_size
 
         size_str = format_size(total_size) if total_size > 0 else "Unknown size"
@@ -245,12 +237,13 @@ class DetailScreen(Screen):
                 valid, error_msg = await self.app.downloader.validate_download(
                     repo_id, files, total_size
                 )
-                
+
                 if not valid:
                     self.app.notify(f"Cannot download: {error_msg}", severity="error")
                     return
-                
+
                 from src.screens.download_screen import DownloadScreen
+
                 self.app.push_screen(DownloadScreen(repo_id, files, is_update=False))
 
         self.app.push_screen(

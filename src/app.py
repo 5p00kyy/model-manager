@@ -85,14 +85,14 @@ class ModelManagerApp(App):
         """Handle terminal resize for responsive design with debouncing."""
         # Mark that a resize is pending
         self._resize_pending = True
-        
+
         # Schedule the actual resize with 200ms delay
         # This cancels any previous pending resize
         def apply_with_flag():
             if self._resize_pending:
                 self._update_responsive_class()
                 self._resize_pending = False
-        
+
         self.set_timer(0.2, apply_with_flag)
 
     def _update_responsive_class(self) -> None:

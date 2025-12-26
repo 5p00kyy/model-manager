@@ -32,12 +32,10 @@ class DownloadManager:
         self._monitor_task = None
         self._current_file_path = None
 
-    async def _download_file_sync(
-        self, repo_id: str, filename: str, local_dir: Path
-    ) -> None:
+    async def _download_file_sync(self, repo_id: str, filename: str, local_dir: Path) -> None:
         """
         Synchronous download wrapper for ThreadPoolExecutor.
-        
+
         Args:
             repo_id: Repository ID
             filename: File to download
@@ -66,7 +64,7 @@ class DownloadManager:
     ) -> None:
         """
         Monitor file download progress in real-time.
-        
+
         Args:
             file_path: Path to file being downloaded
             expected_size: Expected file size in bytes
@@ -81,31 +79,31 @@ class DownloadManager:
         """
         if not callback or expected_size == 0:
             return
-        
+
         speed_calc = DownloadSpeedCalculator(window_size=10)
         last_size = 0
-        
+
         try:
             while not self._cancelled:
                 await asyncio.sleep(0.5)  # Update every 500ms
-                
+
                 # Check if file exists and get current size
                 if not file_path.exists():
                     continue
-                
+
                 current_size = file_path.stat().st_size
-                
+
                 # Calculate speed
                 speed = speed_calc.update(current_size)
-                
+
                 # Calculate progress
                 file_progress = current_size
                 overall_progress = overall_downloaded + current_size
-                
+
                 # Calculate ETA
                 remaining = total_size - overall_progress
                 eta = int(remaining / speed) if speed > 0 else 0
-                
+
                 # Send progress update
                 progress_data: ProgressData = {
                     "repo_id": repo_id,
@@ -120,16 +118,16 @@ class DownloadManager:
                     "eta": eta,
                     "completed": False,
                 }
-                
+
                 callback(progress_data)
-                
+
                 # Check if file download is complete
                 if current_size >= expected_size and current_size == last_size:
                     logger.debug(f"File {filename} completed: {current_size}/{expected_size} bytes")
                     break
-                
+
                 last_size = current_size
-                
+
         except Exception as e:
             logger.error(f"Error monitoring progress for {filename}: {e}", exc_info=True)
 
@@ -147,7 +145,7 @@ class DownloadManager:
 
         Returns:
             True if successful, False otherwise
-            
+
         Note:
             This is an async method that must be awaited. It uses ThreadPoolExecutor
             to run the blocking hf_hub_download in a separate thread while monitoring
@@ -184,9 +182,7 @@ class DownloadManager:
                 if file_path.exists():
                     existing_size = file_path.stat().st_size
                     if existing_size == file_size and file_size > 0:
-                        logger.info(
-                            f"File {filename} already exists with correct size, skipping"
-                        )
+                        logger.info(f"File {filename} already exists with correct size, skipping")
                         overall_downloaded += file_size
                         continue
                     else:
@@ -196,8 +192,7 @@ class DownloadManager:
                         )
 
                 logger.info(
-                    f"Downloading file {idx + 1}/{len(files)}: {filename} "
-                    f"({file_size:,} bytes)"
+                    f"Downloading file {idx + 1}/{len(files)}: {filename} " f"({file_size:,} bytes)"
                 )
 
                 try:
@@ -312,7 +307,7 @@ class DownloadManager:
         """Cancel the current download."""
         self._cancelled = True
         logger.info("Download cancellation requested")
-        
+
         # Cancel monitoring task if running
         if self._monitor_task and not self._monitor_task.done():
             self._monitor_task.cancel()
@@ -322,12 +317,12 @@ class DownloadManager:
     ) -> tuple[bool, str]:
         """
         Validate download can proceed.
-        
+
         Args:
             repo_id: Repository ID
             files: List of files to download
             total_size: Total download size in bytes
-            
+
         Returns:
             Tuple of (success, error_message)
         """
@@ -336,33 +331,33 @@ class DownloadManager:
             local_dir = self.storage.get_model_path(repo_id)
             stat = shutil.disk_usage(local_dir.parent)
             available_space = stat.free
-            
+
             # Require 10% buffer
             required_space = int(total_size * 1.1)
-            
+
             if available_space < required_space:
                 return False, (
                     f"Insufficient disk space. "
                     f"Need {required_space / 1024 / 1024 / 1024:.2f} GB, "
                     f"have {available_space / 1024 / 1024 / 1024:.2f} GB available"
                 )
-            
+
             # Validate files list
             if not files:
                 return False, "No files specified for download"
-            
+
             # Validate repo_id format
             if "/" not in repo_id:
                 return False, f"Invalid repository ID format: {repo_id}"
-            
+
             logger.info(
                 f"Download validation passed: "
                 f"space={available_space / 1024 / 1024 / 1024:.2f} GB available, "
                 f"need={required_space / 1024 / 1024 / 1024:.2f} GB"
             )
-            
+
             return True, ""
-            
+
         except Exception as e:
             logger.error(f"Validation error: {e}", exc_info=True)
             return False, f"Validation failed: {e}"
