@@ -5,7 +5,7 @@ from pathlib import Path
 
 # Application metadata
 APP_NAME = "Model Manager"
-APP_VERSION = "2.2.1"
+APP_VERSION = "2.3.0"
 
 # Directory paths
 BASE_DIR = Path(__file__).parent.parent
