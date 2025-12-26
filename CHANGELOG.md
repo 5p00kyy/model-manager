@@ -2,6 +2,75 @@
 
 All notable changes to Model Manager will be documented in this file.
 
+## [2.4.0] - 2025-12-26
+
+### 🚀 Major Navigation & Progress Improvements
+
+#### Download Progress Accuracy
+- **✅ Real-Time Speed Tracking** - Implemented moving window average for accurate current download speed
+- **✅ Smart ETA Display** - ETA now based on current speed, not average from start
+- **✅ Stall Detection** - Shows "Download stalled" when speed drops below 1 KB/s for 5+ seconds
+- **✅ Accurate File Count** - Displays "0/3 → 1/3 → 2/3 → 3/3" based on files actually completed
+- **✅ Eliminated Stale Updates** - Progress only updates when bytes actually increase
+
+#### Seamless Navigation Flow
+- **✅ Auto-Focus Quantization Table** - Table auto-focuses after loading (no Tab required!)
+- **✅ Enter Key Downloads** - Press Enter on any quantization to start download immediately
+- **✅ Smart Arrow Navigation** - Arrow keys intelligently switch between buttons and table
+- **✅ Improved Button Labels** - "Download Selected" clarifies which quantization will download
+- **✅ Consistent UX** - Navigation flow matches search screen behavior
+
+### Technical Implementation
+
+**Download Progress (`src/services/downloader.py`):**
+- Integrated `DownloadSpeedCalculator` with 10-sample moving window (~3 second average)
+- Added stale update detection using `last_reported_size` tracking
+- Speed calculator only updates on actual byte changes, not duplicate values
+- Improved `_send_progress()` to use `calculate_eta()` helper function
+
+**Download UI (`src/screens/download_screen.py`):**
+- Fixed file count calculation to show completed files accurately
+- Enhanced ETA display with stall detection (< 1 KB/s after 5 seconds)
+- Added intelligent status messages: "Calculating...", "Download stalled", "Unknown"
+- Eliminated duplicate `file_pct` calculation
+
+**Detail Screen (`src/screens/detail_screen.py`):**
+- Added `_focus_quant_table()` method called after quantizations load
+- Implemented `on_data_table_row_selected()` for Enter key support
+- Added `on_key()` handler for smart arrow navigation between widgets
+- Updated button label to "Download Selected" for clarity
+
+### Testing & Quality
+
+**New Tests:**
+- `test_speed_calculator_initialization()` - Verifies DownloadSpeedCalculator setup
+- `test_speed_calculator_multiple_samples()` - Tests moving window averaging
+- `test_speed_calculator_window_size()` - Confirms window size limits
+- `test_speed_calculator_reset()` - Validates reset functionality
+- `test_eta_calculation_zero_speed()` - Tests zero speed edge case
+- `test_navigation.py` - Integration test for navigation improvements
+
+**Test Results:**
+- 15/15 unit tests pass
+- All navigation tests pass
+- Code formatted with black (100 char lines)
+
+### User Experience Improvements
+
+**Before:**
+- Speed: Shows average from start (inaccurate, sluggish)
+- ETA: Based on average speed (wildly inaccurate)
+- File count: Shows "1/1" when downloading first file
+- Navigation: Required Tab to focus table, Tab to button, then Enter
+- Stalls: Speed slowly drifts down over time
+
+**After:**
+- Speed: Real-time moving average (accurate, responsive)
+- ETA: Based on current conditions (much more accurate)
+- File count: Shows "0/3" while downloading first file (intuitive)
+- Navigation: Table auto-focuses, Enter downloads (2 steps instead of 5!)
+- Stalls: Shows "Download stalled" immediately when detected
+
 ## [2.3.0] - 2025-12-26
 
 ### 🎉 Major Improvements

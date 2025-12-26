@@ -11,7 +11,7 @@ from typing import List, Optional
 from huggingface_hub import hf_hub_download
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 
-from src.utils.helpers import ProgressCallback, ProgressData
+from src.utils.helpers import ProgressCallback, ProgressData, DownloadSpeedCalculator, calculate_eta
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ class DownloadManager:
         self.storage = storage_manager
         self._cancelled = False
         self._executor = ThreadPoolExecutor(max_workers=1)
+        self._speed_calculator = None
 
     async def download_model(
         self, repo_id: str, files: List[str], progress_callback: Optional[ProgressCallback] = None
@@ -46,6 +47,9 @@ class DownloadManager:
 
         overall_downloaded = 0
         start_time = time.time()
+
+        # Initialize speed calculator for accurate real-time speed tracking
+        self._speed_calculator = DownloadSpeedCalculator(window_size=10)
 
         try:
             for idx, filename in enumerate(files):
@@ -215,6 +219,7 @@ class DownloadManager:
         # Try to find the incomplete file in HF cache
         # HF creates *.incomplete or *.lock files during download
         last_size = 0
+        last_reported_size = 0  # Track what we last reported to avoid stale updates
         last_update = time.time()
         monitoring_found_file = False
 
@@ -256,10 +261,11 @@ class DownloadManager:
                         logger.info(f"Found incomplete file in global cache: {incomplete_files[0]}")
                         monitoring_found_file = True
 
-            # Send progress update if size changed or every 500ms
+            # Send progress update ONLY if size actually changed
+            # This prevents stale data from corrupting speed calculations
             now = time.time()
             time_since_update = now - last_update
-            size_changed = current_size > last_size
+            size_changed = current_size > last_reported_size
 
             # Log monitoring status periodically
             if time_since_update >= 2.0 and not monitoring_found_file:
@@ -269,10 +275,9 @@ class DownloadManager:
                 )
                 last_update = now  # Reset to avoid spam
 
-            if size_changed or time_since_update >= 0.5:
+            # Only send progress when bytes actually increase
+            if size_changed:
                 if progress_callback:
-                    # Always send updates during monitoring, even if size is 0
-                    # This keeps the UI responsive and shows we're monitoring
                     overall_downloaded = overall_downloaded_before + current_size
 
                     if current_size > 0:
@@ -293,7 +298,12 @@ class DownloadManager:
                         total_size,
                         start_time,
                     )
+                last_reported_size = current_size
                 last_size = current_size
+                last_update = now
+            elif time_since_update >= 0.5:
+                # Heartbeat - don't update speed calculator, just keep UI alive
+                # Send same progress to show we're still monitoring
                 last_update = now
 
             # Sleep briefly before next check
@@ -333,9 +343,10 @@ class DownloadManager:
     ):
         """Send progress update."""
         elapsed = time.time() - start_time
-        speed = overall_downloaded / elapsed if elapsed > 0 else 0
+        # Use speed calculator for accurate real-time speed (moving window average)
+        speed = self._speed_calculator.update(overall_downloaded) if self._speed_calculator else 0
         remaining = overall_total - overall_downloaded
-        eta = int(remaining / speed) if speed > 0 else 0
+        eta = calculate_eta(remaining, speed)
 
         progress_data: ProgressData = {
             "repo_id": repo_id,

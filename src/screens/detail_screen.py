@@ -19,7 +19,8 @@ class DetailScreen(Screen):
     BINDINGS = [
         Binding("escape", "back", "Back"),
         Binding("q", "back", "Back"),
-        Binding("d", "download", "Download"),
+        Binding("d", "download", "Download Selected"),
+        Binding("enter", "download", "Download", show=False),
     ]
 
     def __init__(self, model_data: dict, is_remote: bool = False):
@@ -75,7 +76,7 @@ class DetailScreen(Screen):
                 # Action buttons
                 with Horizontal():
                     if self.is_remote:
-                        yield Button("Download", variant="primary", id="download-btn")
+                        yield Button("Download Selected", variant="primary", id="download-btn")
                     yield Button("Back", variant="default", id="back-btn")
 
     def on_mount(self) -> None:
@@ -145,6 +146,9 @@ class DetailScreen(Screen):
 
             # Update table
             self.update_quant_table()
+
+            # Auto-focus table for seamless navigation (no Tab needed!)
+            self.call_after_refresh(self._focus_quant_table)
 
         except HuggingFaceError as e:
             status = self.query_one("#quant-status", Static)
@@ -257,3 +261,42 @@ class DetailScreen(Screen):
     def action_back(self) -> None:
         """Go back."""
         self.app.pop_screen()
+
+    def _focus_quant_table(self) -> None:
+        """Focus the quantization table after loading."""
+        if not self.is_remote:
+            return
+        try:
+            table = self.query_one("#quant-table", DataTable)
+            if table.row_count > 0:
+                table.focus()
+        except Exception:
+            pass  # Table might not exist if we navigated away
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle Enter key on table row - directly start download."""
+        if self.is_remote:
+            self.action_download()
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle smart keyboard navigation between table and buttons."""
+        if not self.is_remote:
+            return
+
+        try:
+            table = self.query_one("#quant-table", DataTable)
+            download_btn = self.query_one("#download-btn", Button)
+
+            # DOWN arrow from Download button → jump to table
+            if event.key == "down" and download_btn.has_focus:
+                if table.row_count > 0:
+                    table.focus()
+                    event.prevent_default()
+
+            # UP arrow at top of table → return to Download button
+            elif event.key == "up" and table.has_focus:
+                if table.cursor_row == 0:
+                    download_btn.focus()
+                    event.prevent_default()
+        except Exception:
+            pass  # Widgets might not exist

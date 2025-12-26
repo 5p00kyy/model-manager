@@ -174,19 +174,29 @@ class DownloadScreen(Screen):
             total = format_size(progress_data.get("overall_total", 0))
             file_idx = progress_data.get("current_file_index", 0)
             total_files = progress_data.get("total_files", 0)
-            progress_label.update(f"{downloaded} / {total}  ({file_idx}/{total_files} files)")
+
+            # Current file progress (needed for file count calculation)
+            file_pct = (
+                progress_data.get("current_file_downloaded", 0)
+                / max(progress_data.get("current_file_total", 1), 1)
+                * 100
+            )
+
+            # Calculate files actually completed (not currently downloading)
+            files_completed = file_idx - 1 if file_pct < 100 else file_idx
+            if progress_data.get("completed", False):
+                files_completed = total_files
+
+            progress_label.update(
+                f"{downloaded} / {total}  ({files_completed}/{total_files} files)"
+            )
 
             # Current file
             current_file = progress_data.get("current_file", "")
             file_label = self.query_one("#file-label", Label)
             file_label.update(f"Current: {current_file}")
 
-            # File progress
-            file_pct = (
-                progress_data.get("current_file_downloaded", 0)
-                / max(progress_data.get("current_file_total", 1), 1)
-                * 100
-            )
+            # File progress bar
             file_bar = self.query_one("#file-progress", ProgressBar)
             file_bar.update(progress=file_pct)
 
@@ -195,13 +205,26 @@ class DownloadScreen(Screen):
             speed_label = self.query_one("#speed-label", Label)
             speed_label.update(f"Speed: {format_speed(speed)}")
 
-            # ETA
+            # ETA with smart stall detection
             eta = progress_data.get("eta", 0)
             eta_label = self.query_one("#eta-label", Label)
-            if eta > 0:
+
+            # Calculate elapsed time for stall detection
+            elapsed = 0
+            if self._download_start_time:
+                import time
+
+                elapsed = time.time() - self._download_start_time
+
+            # Show appropriate ETA based on download state
+            if speed < 1024 and elapsed > 5:  # Less than 1 KB/s after 5 seconds
+                eta_label.update("ETA: Download stalled")
+            elif eta > 0 and speed > 0:
                 eta_label.update(f"ETA: {format_time(eta)}")
-            else:
+            elif elapsed < 3:
                 eta_label.update("ETA: Calculating...")
+            else:
+                eta_label.update("ETA: Unknown")
 
             # Elapsed time
             if self._download_start_time:

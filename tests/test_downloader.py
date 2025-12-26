@@ -8,10 +8,11 @@ import tempfile
 import shutil
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.services.downloader import DownloadManager
-from src.utils.helpers import ProgressData
+from src.utils.helpers import ProgressData, DownloadSpeedCalculator, calculate_eta
 
 
 class TestDownloadManager:
@@ -54,9 +55,7 @@ class TestDownloadManager:
     @pytest.mark.asyncio
     async def test_validate_download_success(self, downloader):
         """Test successful download validation."""
-        valid, msg = await downloader.validate_download(
-            "test/model", ["test.gguf"], 1024
-        )
+        valid, msg = await downloader.validate_download("test/model", ["test.gguf"], 1024)
         assert valid is True
         assert msg == ""
 
@@ -78,9 +77,7 @@ class TestDownloadManager:
     async def test_validate_download_insufficient_space(self, downloader):
         """Test validation with insufficient disk space."""
         # Use a huge file size that's definitely larger than available space
-        valid, msg = await downloader.validate_download(
-            "test/model", ["test.gguf"], 10**15  # 1 PB
-        )
+        valid, msg = await downloader.validate_download("test/model", ["test.gguf"], 10**15)  # 1 PB
         assert valid is False
         assert "Insufficient disk space" in msg
 
@@ -138,9 +135,70 @@ class TestProgressCalculations:
         speed = 1024 * 1024  # 1 MB/s
 
         remaining = total_size - downloaded
-        eta = int(remaining / speed) if speed > 0 else 0
+        eta = calculate_eta(remaining, speed)
 
         assert eta == 75  # 75 seconds remaining
+
+    def test_eta_calculation_zero_speed(self):
+        """Test ETA calculation with zero speed."""
+        remaining = 1024 * 1024
+        speed = 0
+        eta = calculate_eta(remaining, speed)
+        assert eta == 0  # Unknown ETA
+
+
+class TestDownloadSpeedCalculator:
+    """Test speed calculator with moving window average."""
+
+    def test_speed_calculator_initialization(self):
+        """Test speed calculator initialization."""
+        calc = DownloadSpeedCalculator(window_size=10)
+        assert calc.window_size == 10
+        assert len(calc.samples) == 0
+
+    def test_speed_calculator_single_sample(self):
+        """Test speed calculator with single sample."""
+        calc = DownloadSpeedCalculator()
+        speed = calc.update(1024)
+        assert speed == 0.0  # Need at least 2 samples
+
+    def test_speed_calculator_multiple_samples(self):
+        """Test speed calculator with multiple samples."""
+        import time
+
+        calc = DownloadSpeedCalculator(window_size=5)
+
+        # Simulate downloading 1 KB per update with small delays
+        bytes_downloaded = 0
+        speed = 0.0
+        for i in range(5):
+            bytes_downloaded += 1024
+            speed = calc.update(bytes_downloaded)
+            time.sleep(0.01)  # Small delay between updates
+
+        # Speed should be positive (bytes per second)
+        assert speed > 0
+
+    def test_speed_calculator_window_size(self):
+        """Test that speed calculator maintains window size."""
+        calc = DownloadSpeedCalculator(window_size=3)
+
+        # Add more samples than window size
+        for i in range(10):
+            calc.update(i * 1024)
+
+        # Should only keep last 3 samples
+        assert len(calc.samples) <= 3
+
+    def test_speed_calculator_reset(self):
+        """Test speed calculator reset."""
+        calc = DownloadSpeedCalculator()
+        calc.update(1024)
+        calc.update(2048)
+        assert len(calc.samples) > 0
+
+        calc.reset()
+        assert len(calc.samples) == 0
 
 
 if __name__ == "__main__":
