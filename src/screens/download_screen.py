@@ -94,14 +94,15 @@ class DownloadScreen(Screen):
             logger.info(f"Starting download worker for {self.repo_id}")
             app = self.app
 
-            # Create progress callback wrapper that posts messages
+            # Create progress callback wrapper that updates UI directly
             def progress_callback_wrapper(progress_data: dict) -> None:
-                """Wrapper to post progress updates as messages."""
+                """Wrapper to update UI with progress."""
                 logger.debug(
                     f"Progress callback wrapper called: {progress_data.get('current_file', 'N/A')}"
                 )
-                # Post message to main thread for UI update
-                self.post_message(self.ProgressUpdate(progress_data))
+                # Update UI directly - we're already in the async main thread
+                # No need for message passing since download_worker runs via run_worker()
+                self.update_progress(progress_data)
 
             # Await the now-async download_model method
             logger.info("Calling download_model...")
