@@ -1,157 +1,117 @@
-# Model Manager v2.3.0
+# Model Manager
 
-A modern Terminal User Interface (TUI) for managing GGUF models from HuggingFace with a vibrant green theme, responsive design, and real-time download progress tracking.
-
-## Critical Fix in v2.3.0
-
-**Download Progress Now Works Properly**
-
-The major issue where downloads appeared stuck at "Preparing download... 0%" has been completely resolved. Downloads now show:
-
-- Real-time progress updates every 300ms
-- Accurate download speed calculations
-- Estimated time remaining
-- Elapsed time tracking
-- Automatic retry on network failures
-- Safe cancellation without crashes
+A modern Terminal User Interface (TUI) for managing GGUF models from HuggingFace. Features real-time download progress, accurate progress tracking, seamless navigation, and a vibrant dark theme.
 
 ## Features
 
-### Download System
-- **Byte-Level Progress Monitoring** - See actual download progress in real-time, not just when files complete
-- **Automatic Retry Logic** - Network failures automatically retry up to 3 times with exponential backoff
-- **Pre-Download Validation** - Automatic disk space and file validation before downloads begin
-- **Resume Support** - Downloads can resume from where they left off if interrupted
-- **Real-Time Metrics** - Live speed, ETA, and elapsed time updates
+### Download Management
+
+- **Real-Time Progress Tracking** - Monitor downloads byte-by-byte with accurate speed and ETA
+- **Resumed Download Support** - Automatically resume interrupted downloads from where they left off
+- **Intelligent Speed Calculation** - Moving window average provides accurate current download rates
+- **Automatic Retry** - Network failures automatically retry with exponential backoff
+- **Color-Coded Status** - Visual feedback with green (fast), cyan (good), yellow (slow), red (stalled)
+- **Stall Detection** - Immediate feedback when download speed drops below threshold
 
 ### User Interface
-- **Vibrant Green Theme** - Eye-friendly green color scheme with 16 carefully selected colors
-- **Responsive Design** - Adaptive layout for desktop (80+ cols), tablet (60-79 cols), and mobile (<60 cols)
-- **Modern Widget System** - Reusable components including StatusBadge, LoadingSpinner, Modal
-- **Enhanced Search** - Auto-focus results, smart keyboard navigation, debounced input
-- **Model Management** - View, update, and delete downloaded models with confirmation dialogs
 
-### Technical Features
-- **Async Architecture** - Non-blocking downloads with progress monitoring using ThreadPoolExecutor
-- **Robust Error Handling** - Comprehensive error handling with user-friendly messages and warnings
-- **Lifecycle Safety** - UI widgets properly guarded against updates after unmount
-- **Type Safety** - TypedDict for type-safe progress data structures
-- **Comprehensive Testing** - Unit tests with 100% pass rate
+- **Vibrant Dark Theme** - Eye-friendly color scheme optimized for terminal viewing
+- **Responsive Design** - Adaptive layout for desktop (80+ cols), tablet (60-79 cols), and mobile (<60 cols)
+- **Smart Navigation** - Auto-focus, Enter key actions, intelligent arrow key movement
+- **Seamless Flow** - No excessive Tab key presses needed
+- **Modern Widgets** - Reusable components with consistent styling
+- **Confirmation Modals** - Clear dialogs for destructive actions
+
+### Model Management
+
+- **Search & Browse** - Find models on HuggingFace with debounced search
+- **View Details** - Complete model information with available quantizations
+- **Download** - Select specific quantizations with clear file size information
+- **Update Checking** - Automatic background checks for model updates
+- **Update Status** - Visual badges showing up-to-date or update available
+- **Delete Models** - Remove local models with confirmation
 
 ## Installation
 
 ### Requirements
 
-- Python 3.10+ (for modern type hints)
-- pip
+- Python 3.10 or higher
+- pip package manager
 
-### Install Dependencies
+### Install
 
 ```bash
+git clone <repository-url>
+cd model-manager
 pip install -r requirements.txt
+```
+
+### Verify Installation
+
+```bash
+python3 -m pytest tests/ -v
 ```
 
 ## Usage
 
-### Run the Application
+### Start Application
 
 ```bash
 python3 run.py
 ```
 
-Or make it executable:
-
-```bash
-chmod +x run.py
-./run.py
-```
-
 ### Keyboard Shortcuts
 
-**Main Screen:**
+**Main Screen (Dashboard)**
 - `S` - Search for models
-- `R` - Refresh model list and check for updates
+- `R` - Refresh model list and check updates
 - `Enter` - View model details
-- `D` - Delete selected model (with confirmation)
+- `D` - Delete selected model
 - `U` - Update selected model
 - `Q` - Quit application
 
-**Search Screen:**
-- Type to search (with 500ms debounce)
-- Down Arrow - Jump from search to results table
-- Up Arrow - Return to search from first result
-- `Enter` - View model details (or double-click row)
+**Search Screen**
+- Type to search (500ms debounce)
+- `Down` - Jump from search to results
+- `Up` - Return to search from first result
+- `Enter` - View model details
 - `Esc` / `Q` - Go back
 
-**Detail Screen:**
-- `D` - Download selected quantization (with confirmation)
+**Detail Screen**
+- Arrow keys - Navigate quantization table
+- `D` - Download selected quantization
+- `Enter` - Download selected quantization (works from table)
 - `Esc` / `Q` - Go back
 
-**Download Screen:**
+**Download Screen**
 - `C` / `Esc` - Cancel download
 
-## UI Components
+### Download Flow
 
-### Widgets
-
-1. **StatusBadge** - Visual status indicators
-   - Success (green)
-   - Warning/Update (yellow)
-   - Error (red)
-   - Info (cyan)
-   - Checking (cyan)
-
-2. **LoadingSpinner** - Animated spinner
-   - Indicates background operations
-   - Auto-animates at 0.5s intervals
-
-3. **SectionHeader** - Consistent section titles
-   - Styled with primary color
-   - Optional icon support
-
-4. **Modal** - Professional confirmation dialogs
-   - Semi-transparent overlay
-   - Yes/No options
-   - Keyboard navigation
-
-5. **StyledButton** - Button variants
-   - Default, Primary, Error styles
-   - Hover effects
-
-6. **PanelCard** - Container widget
-   - Consistent borders and padding
-   - Hover state styling
-
-### Theme Colors
-
-```
-Background:      #0d1117  (Deep dark)
-Surface:         #161b22  (Slightly lighter)
-Primary:         #3fb950  (Vibrant green)
-Primary-dim:     #2ea043  (Darker green)
-Primary-bright:  #56d364  (Lighter green)
-Accent:          #a371f7  (Purple)
-Success:         #3fb950  (Green)
-Warning:         #d29922  (Orange)
-Error:           #f85149  (Red)
-```
+1. Press `S` to search for models
+2. Type keywords (e.g., "llama", "mistral", "phi")
+3. Navigate results with arrow keys, press `Enter` on a model
+4. View quantizations (table auto-focuses automatically)
+5. Navigate to desired quantization, press `Enter` (or `D`)
+6. Confirm download in modal
+7. Monitor real-time progress with speed, ETA, and file count
+8. Download automatically resumes if interrupted
 
 ## Project Structure
 
 ```
 model-manager/
-├── run.py                      # Entry point
+├── run.py                      # Application entry point
 ├── requirements.txt            # Python dependencies
 ├── requirements-dev.txt        # Development dependencies
 ├── README.md                   # This file
 ├── CHANGELOG.md                # Version history
 ├── src/
-│   ├── app.py                  # Main application
-│   ├── config.py               # Configuration
+│   ├── app.py                  # Main Textual application
+│   ├── config.py               # Configuration constants
 │   ├── theme.py                # Dark theme CSS
 │   ├── exceptions.py           # Custom exceptions
 │   ├── models.py               # Data models
-│   │
 │   ├── widgets/                # Reusable UI components
 │   │   ├── status_badge.py     # Status indicators
 │   │   ├── loading.py          # Loading spinner
@@ -159,202 +119,103 @@ model-manager/
 │   │   ├── card.py             # Panel containers
 │   │   ├── styled_button.py    # Styled buttons
 │   │   └── modal.py            # Modal dialogs
-│   │
 │   ├── services/               # Backend services
 │   │   ├── hf_client.py        # HuggingFace API wrapper
 │   │   ├── storage.py          # Local storage management
-│   │   ├── downloader.py       # Download manager
+│   │   ├── downloader.py       # Download manager with progress tracking
 │   │   └── updater.py          # Update checker
-│   │
 │   ├── screens/                # TUI screens
 │   │   ├── main_screen.py      # Dashboard with model list
 │   │   ├── search_screen.py    # Search interface
 │   │   ├── detail_screen.py    # Model details & quantizations
-│   │   └── download_screen.py  # Download progress
-│   │
+│   │   └── download_screen.py  # Download progress screen
 │   └── utils/
-│       └── helpers.py          # Utility functions
-│
+│       └── helpers.py          # Utility functions and formatters
 ├── tests/                      # Unit tests
-│   ├── __init__.py
-│   └── test_downloader.py      # Download manager tests
-│
+│   ├── test_downloader.py      # Download manager tests
+│   └── test_navigation.py       # Navigation integration tests
 └── models/                     # Downloaded models (created on first run)
-    └── .metadata.json          # Model metadata
+    ├── .metadata.json          # Model metadata and download history
+    └── [author-name]/         # Organized by author/model
+        └── model-name/
+            ├── *.gguf           # Model files
+            └── .cache/         # Temporary download cache
 ```
 
-## How It Works
+## Model Storage
 
-### Search & Download
-
-1. Press `S` to open search screen
-2. Type keywords (e.g., "llama", "mistral", "phi")
-3. Watch the loading spinner while searching
-4. Navigate results with arrow keys
-5. Press `Enter` to view model details
-6. Select a quantization and press `D`
-7. Confirm download in modal dialog
-8. Monitor real-time progress with speed and ETA
-9. Download resumes automatically if interrupted
-
-### Update Checking
-
-The app performs async update checks in the background:
-
-- **On Startup**: Checks all local models for updates
-- **Manual Refresh**: Press `R` to trigger update check
-- **Status Indicators**: Visual badges show update status
-
-Update statuses:
-- **Up to date** - Model is current
-- **Update available** - Newer version exists  
-- **Checking...** - Update check in progress
-- **Error** - Check failed
-- **Unknown** - No information available
-
-### Model Organization
-
-Models are stored with this structure:
+Models are organized by author and model name:
 
 ```
 models/
-├── author-name/
-│   └── model-name/
-│       ├── model-q4_0.gguf
-│       ├── model-q4_1.gguf
-│       └── model-q5_0.gguf
-└── .metadata.json              # Stores download dates and commit SHAs
+├── .metadata.json              # Stores download dates and commit SHAs
+└── [author-name]/
+    └── [model-name]/
+        ├── model-q4_k_m.gguf
+        ├── model-q5_k_s.gguf
+        └── model-q8_0.gguf
 ```
 
-## What's New in v2.3.0
+### Update Checking
 
-### Critical Fix: Download Progress
+The application automatically checks for model updates:
 
-**FIXED:** Download progress stuck at 0%
+- **Startup** - Checks all local models for updates
+- **Manual** - Press `R` to trigger update check
+- **Status Badges** - Visual indicators on main screen
 
-Downloads now show real-time progress updates:
-- Byte-level progress monitoring (updates every 300ms)
-- Accurate speed and ETA calculations
-- Elapsed time display
-- Smooth progress bar updates
+Update statuses:
+- **Up to Date** - Model is at latest version
+- **Update Available** - Newer version exists
+- **Checking** - Update check in progress
+- **Error** - Check failed
+- **Unknown** - No information available
 
-**How it Works:**
-- Monitors HuggingFace cache directory for file growth
-- Polls file size every 300ms during download
-- Calculates speed based on actual bytes downloaded
-- Updates UI using Textual's message system for thread safety
+## Terminal Size
 
-### Automatic Retry System
+The application adapts to your terminal size:
 
-**NEW:** Downloads automatically retry on failure
+- **Desktop (80+ cols)** - Full layout with all columns
+- **Tablet (60-79 cols)** - Compact layout, some columns hidden
+- **Mobile (<60 cols)** - Minimal layout, essential columns only
+- **Tiny (<40 cols)** - Cramped layout, may have visual issues
 
-- 3 automatic retries for network errors
-- Exponential backoff (2s, 4s, 8s) to avoid server overload
-- Clear error messages when retries exhausted
-- Detailed logging for debugging
-
-**Impact:** 99% fewer download failures due to transient network issues
-
-### UI Lifecycle Safety
-
-**FIXED:** App no longer crashes when:
-- Cancelling a download mid-progress
-- Navigating away during download
-- Closing the download screen early
-
-**Implementation:**
-- Added `_is_mounted` flag to track screen state
-- Added `on_unmount()` handler for cleanup
-- Guarded all UI update methods with mount checks
-- Safe widget access with try/except blocks
-
-### Enhanced Error Handling
-
-**Improvements:**
-- Specific error messages for each failure type
-- User-friendly notifications
-- Comprehensive logging throughout
-- Proper exception handling in all async operations
-
-### Code Quality
-
-- **Unit Tests:** 9 comprehensive tests (100% pass rate)
-- **Code Formatting:** All code formatted with black
-- **Type Safety:** Proper TypedDict usage for progress data
-- **Documentation:** Complete CHANGELOG and release notes
-
-## Version History
-
-### v2.3.0 (Current - December 26, 2025)
-- **FIXED:** Download progress stuck at 0% - now shows real-time byte-level progress
-- Automatic retry system for network failures (3 attempts with exponential backoff)
-- UI lifecycle guards prevent crashes during downloads
-- Elapsed time display shows download duration
-- Comprehensive unit tests (9 tests, 100% pass rate)
-- Code formatted with black, clean linting
-- Enhanced error handling and user feedback
-
-### v2.2.1
-- Async download system with ThreadPoolExecutor
-- Real-time progress monitoring attempt
-- Pre-download validation (disk space, file sizes)
-- TypedDict for type-safe progress callbacks
-- Fixed UI freezing issues during downloads
-
-### v2.2.0
-- Green theme conversion
-- Responsive design system
-- Enhanced search UX
-- Smart keyboard navigation
-
-### v2.1.0
-- Professional dark theme
-- Custom widget system
-- Async update checking
-- Modal dialogs
+**Recommended:** Minimum 60x24 for good experience, optimal 100x30 or larger
 
 ## Troubleshooting
 
 ### Download Issues
 
-**Problem:** Download appears to not start or shows 0% progress
+**Problem:** Download appears stuck or shows incorrect progress
 
-**Solution:** This was fixed in v2.3.0. Update to the latest version.
-
-**If still having issues:**
+**Solutions:**
 1. Check `model_manager.log` for errors
 2. Verify internet connection
 3. Ensure sufficient disk space
 4. Check HuggingFace API status
 
-### Terminal Size
-
-**Responsive Breakpoints:**
-- Desktop (80+ cols): Full layout with all columns
-- Tablet (60-79 cols): Compact layout, some columns hidden
-- Mobile (40-59 cols): Minimal layout, essential columns only
-- Tiny (<40 cols): Cramped layout, may have visual issues
-
-**Recommended:**
-- Minimum: 60x24 for good experience
-- Optimal: 100x30 or larger
-- The app adapts automatically when you resize your terminal
-
 ### Import Errors
 
-Ensure you're running from the project root:
+**Problem:** `ModuleNotFoundError` when running
 
+**Solution:**
 ```bash
-cd /path/to/model-manager
-python3 run.py
+pip install -r requirements.txt
 ```
+
+### Terminal Display Issues
+
+**Problem:** Layout looks broken or text overlaps
+
+**Solution:** Ensure terminal is at least 60x24 characters
 
 ### Python Version
 
-Requires Python 3.10+ for modern type hints:
+**Requirement:** Python 3.10 or higher
 
+**Check version:**
 ```bash
-python3 --version  # Should show 3.10 or higher
+python3 --version
 ```
 
 ## Development
@@ -365,109 +226,46 @@ python3 --version  # Should show 3.10 or higher
 # Format code
 black src/ --line-length 100
 
-# Check linting
-flake8 --max-line-length=100 --extend-ignore=E203,W503 src/
+# Run tests
+python3 -m pytest tests/ -v
 
-# Type checking (if mypy installed)
-mypy src/
+# Run specific test
+python3 -m pytest tests/test_downloader.py -v
 ```
 
 ### Testing
 
-```bash
-# Run unit tests
-python3 -m pytest tests/ -v
-
-# Run integration test
-python3 test_download_fixed.py
-
-# Run specific test file
-python3 -m pytest tests/test_downloader.py -v
-```
-
-### Running Tests
-
 Test coverage includes:
 - Download manager functionality
 - Progress calculations
+- Resumed download behavior
+- Speed calculation accuracy
 - Validation logic
 - Cancellation handling
 - Error scenarios
 
 All tests use pytest with async support (pytest-asyncio).
 
-## Technical Details
-
-### Download Architecture
-
-```
-User confirms download
-  → Validation (disk space, file sizes)
-    → DownloadScreen.download_worker() [async]
-      → DownloadManager.download_model() [async]
-        → ThreadPoolExecutor.run_in_executor(hf_hub_download)
-        → Async monitor task polls file size every 300ms
-          → Progress callback with real-time updates
-            → Post message to main thread
-              → UI update handler on main thread
-                → Widgets update with progress
-```
-
-### Progress Monitoring
-
-```python
-async def _download_with_progress(self, ...):
-    # Start download in background thread
-    future = run_in_executor(hf_hub_download, ...)
-    
-    # Monitor file growth every 300ms
-    while not future.done():
-        current_size = get_file_size()
-        send_progress_update(current_size)
-        await asyncio.sleep(0.3)
-    
-    await future  # Wait for completion
-```
-
-### Retry Logic
-
-```python
-max_retries = 3
-retry_count = 0
-while retry_count < max_retries:
-    try:
-        await download_file()
-        break  # Success
-    except NetworkError:
-        retry_count += 1
-        if retry_count < max_retries:
-            await asyncio.sleep(2 ** retry_count)  # Exponential backoff
-```
-
 ## Logs
 
 Application logs: `model_manager.log` in project directory
 
 Log levels:
-- DEBUG: Implementation details, progress updates
-- INFO: Normal operations, user actions
-- WARNING: Non-critical issues, retries
-- ERROR: Failures and exceptions
+- **DEBUG** - Detailed implementation information
+- **INFO** - Normal operations, user actions
+- **WARNING** - Non-critical issues, retry attempts
+- **ERROR** - Failures and exceptions
 
-## Statistics
+## Version History
 
-- **Total Files**: 26 Python files
-- **Total Code**: ~2,800 lines
-- **Widgets**: 6 reusable components
-- **Screens**: 4 fully-featured screens
-- **Services**: 4 backend services
-- **Theme Colors**: 16 carefully selected
-- **CSS Lines**: 267 lines of styling
-- **Test Coverage**: 100% for download manager
+### v2.5.0 (Current)
+- Fixed critical resumed download progress bug
+- Improved speed calculation accuracy
+- Added color-coded speed visualization
+- Enhanced progress display with percentage
+- Improved monitoring source selection
 
-## Contributing
-
-This is a personal project, but suggestions are welcome via issues.
+See [CHANGELOG.md](CHANGELOG.md) for complete version history.
 
 ## License
 
@@ -477,8 +275,8 @@ This project is provided as-is for personal use.
 
 - Built with [Textual](https://textual.textualize.io/) - Modern TUI framework
 - Uses [HuggingFace Hub](https://huggingface.co/) - Model repository
-- Theme inspired by GitHub's dark mode
+- Icons from terminal character sets
 
 ---
 
-**Model Manager v2.3.0** - A responsive TUI for GGUF model management with real-time download progress
+**Model Manager v2.5.0** - Professional TUI for GGUF model management
