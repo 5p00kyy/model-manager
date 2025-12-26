@@ -20,6 +20,8 @@ class ProgressData(TypedDict, total=False):
     speed: float
     eta: int
     completed: bool
+    status: str  # 'downloading', 'resuming', 'finalizing', etc.
+    initial_bytes: int  # Bytes already downloaded before this session
     retry: int
     max_retries: int
 
@@ -200,15 +202,33 @@ class DownloadSpeedCalculator:
         if len(self.samples) < 2:
             return 0.0
 
-        # Calculate speed from first to last sample in window
-        first_time, first_bytes = self.samples[0]
-        last_time, last_bytes = self.samples[-1]
+        # Calculate speed from last few samples (more responsive)
+        # Use last half of window for current speed
+        recent_samples = self.samples[-(min(len(self.samples), self.window_size // 2)) :]
+        if len(recent_samples) < 2:
+            recent_samples = self.samples
+
+        first_time, first_bytes = recent_samples[0]
+        last_time, last_bytes = recent_samples[-1]
 
         time_diff = last_time - first_time
         if time_diff == 0:
             return 0.0
 
         bytes_diff = last_bytes - first_bytes
+
+        # Filter out zero or negative byte changes (stalled download)
+        if bytes_diff <= 0:
+            # Try using all samples for better estimate
+            first_time_all, first_bytes_all = self.samples[0]
+            last_time_all, last_bytes_all = self.samples[-1]
+            time_diff_all = last_time_all - first_time_all
+            if time_diff_all > 0:
+                bytes_diff_all = last_bytes_all - first_bytes_all
+                if bytes_diff_all > 0:
+                    return bytes_diff_all / time_diff_all
+            return 0.0
+
         return bytes_diff / time_diff
 
     def reset(self):

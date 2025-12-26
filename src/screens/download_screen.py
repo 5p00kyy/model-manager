@@ -168,7 +168,7 @@ class DownloadScreen(Screen):
             overall_bar = self.query_one("#overall-progress", ProgressBar)
             overall_bar.update(progress=overall_pct)
 
-            # Progress label
+            # Progress label with percentage
             progress_label = self.query_one("#progress-label", Label)
             downloaded = format_size(progress_data.get("overall_downloaded", 0))
             total = format_size(progress_data.get("overall_total", 0))
@@ -187,8 +187,10 @@ class DownloadScreen(Screen):
             if progress_data.get("completed", False):
                 files_completed = total_files
 
+            # Show percentage prominently
+            overall_pct_int = int(overall_pct)
             progress_label.update(
-                f"{downloaded} / {total}  ({files_completed}/{total_files} files)"
+                f"{downloaded} / {total} ({overall_pct_int}%) - ({files_completed}/{total_files} files)"
             )
 
             # Current file
@@ -200,10 +202,23 @@ class DownloadScreen(Screen):
             file_bar = self.query_one("#file-progress", ProgressBar)
             file_bar.update(progress=file_pct)
 
-            # Speed
+            # Speed with color coding
             speed = progress_data.get("speed", 0)
             speed_label = self.query_one("#speed-label", Label)
-            speed_label.update(f"Speed: {format_speed(speed)}")
+
+            # Color-code speed based on performance
+            if speed > 10 * 1024 * 1024:  # > 10 MB/s
+                speed_text = f"[green]Speed: {format_speed(speed)}[/]"
+            elif speed > 1 * 1024 * 1024:  # > 1 MB/s
+                speed_text = f"[cyan]Speed: {format_speed(speed)}[/]"
+            elif speed > 100 * 1024:  # > 100 KB/s
+                speed_text = f"[yellow]Speed: {format_speed(speed)}[/]"
+            elif speed > 0:  # Slow
+                speed_text = f"[red]Speed: {format_speed(speed)}[/]"
+            else:  # Stalled
+                speed_text = f"[red]Speed: Stalled[/]"
+
+            speed_label.update(speed_text)
 
             # ETA with smart stall detection
             eta = progress_data.get("eta", 0)
@@ -234,9 +249,23 @@ class DownloadScreen(Screen):
                 elapsed_label = self.query_one("#elapsed-label", Label)
                 elapsed_label.update(f"Elapsed: {format_time(int(elapsed))}")
 
-            # Update status
+            # Update status with resumed download indicator
             status_label = self.query_one("#status-label", Label)
-            status_label.update("Downloading...")
+            status = progress_data.get("status", "downloading")
+
+            # Show "Resuming" if we have initial bytes
+            if status == "resuming":
+                initial_bytes = progress_data.get("initial_bytes", 0)
+                if initial_bytes > 0:
+                    status_label.update(
+                        f"Resuming download... ({format_size(initial_bytes)} already downloaded)"
+                    )
+                else:
+                    status_label.update("Downloading...")
+            elif status == "downloading":
+                status_label.update("Downloading...")
+            else:
+                status_label.update(status)
         except Exception as e:
             logger.error(f"Error updating progress UI: {e}", exc_info=True)
 

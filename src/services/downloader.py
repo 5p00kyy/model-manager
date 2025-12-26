@@ -26,6 +26,8 @@ class DownloadManager:
         self._cancelled = False
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._speed_calculator = None
+        self._is_resuming = False
+        self._initial_bytes_before = 0
 
     async def download_model(
         self, repo_id: str, files: List[str], progress_callback: Optional[ProgressCallback] = None
@@ -50,6 +52,21 @@ class DownloadManager:
 
         # Initialize speed calculator for accurate real-time speed tracking
         self._speed_calculator = DownloadSpeedCalculator(window_size=10)
+
+        # Calculate initial bytes already downloaded (for resumed downloads)
+        self._initial_bytes_before = 0
+        for filename in files:
+            file_path = local_dir / filename
+            if file_path.exists():
+                self._initial_bytes_before += file_path.stat().st_size
+
+        # Seed speed calculator with initial bytes to avoid erratic speeds
+        self._is_resuming = self._initial_bytes_before > 0
+        if self._is_resuming:
+            logger.info(
+                f"Download resuming with {self._initial_bytes_before:,} bytes already downloaded"
+            )
+            self._speed_calculator.update(self._initial_bytes_before)
 
         try:
             for idx, filename in enumerate(files):
@@ -216,6 +233,38 @@ class DownloadManager:
         logger.info(f"Monitoring local cache: {local_cache_download}")
         logger.debug(f"Fallback global cache: {global_cache_download}")
 
+        # Track initial size of incomplete file to avoid counting it twice
+        # This fixes the bug where resumed downloads show 100% immediately
+        initial_incomplete_size = 0
+        target_file = local_dir / filename
+
+        # Check all potential locations and record starting size
+        candidates = []
+
+        # Priority 1: Final file exists
+        if target_file.exists():
+            candidates.append((target_file.stat().st_mtime, target_file.stat().st_size))
+
+        # Priority 2: Local cache incomplete files
+        if local_cache_download.exists():
+            for f in local_cache_download.glob("*.incomplete"):
+                candidates.append((f.stat().st_mtime, f.stat().st_size))
+                logger.info(f"Found local cache incomplete: {f.name} ({f.stat().st_size} bytes)")
+
+        # Priority 3: Global cache incomplete files
+        if global_cache_download.exists():
+            for f in global_cache_download.glob("*.incomplete"):
+                candidates.append((f.stat().st_mtime, f.stat().st_size))
+                logger.info(f"Found global cache incomplete: {f.name} ({f.stat().st_size} bytes)")
+
+        # Use the most recently modified file's size as initial
+        if candidates:
+            candidates.sort(reverse=True)  # Most recent first
+            initial_incomplete_size = candidates[0][1]
+            logger.info(
+                f"Initial incomplete file size: {initial_incomplete_size:,} bytes (resuming download)"
+            )
+
         # Try to find the incomplete file in HF cache
         # HF creates *.incomplete or *.lock files during download
         last_size = 0
@@ -233,33 +282,42 @@ class DownloadManager:
             current_size = 0
             found_location = None
 
+            # Collect all candidates and pick most recently modified
+            candidates = []
+
             # Priority 1: Check if final file exists and is growing
             if target_file.exists():
-                current_size = target_file.stat().st_size
-                found_location = "target_file"
+                candidates.append(
+                    (target_file.stat().st_mtime, target_file.stat().st_size, "target_file")
+                )
 
             # Priority 2: Check LOCAL cache for incomplete files
-            elif local_cache_download.exists():
+            if local_cache_download.exists():
                 incomplete_files = list(local_cache_download.glob("*.incomplete"))
-                if incomplete_files:
-                    # Use the most recently modified one
-                    incomplete_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                    current_size = incomplete_files[0].stat().st_size
-                    found_location = f"local_cache ({incomplete_files[0].name})"
+                for f in incomplete_files:
+                    candidates.append(
+                        (f.stat().st_mtime, f.stat().st_size, f"local_cache ({f.name})")
+                    )
                     if not monitoring_found_file:
-                        logger.info(f"Found incomplete file: {incomplete_files[0]}")
+                        logger.info(f"Found incomplete file: {f}")
                         monitoring_found_file = True
 
             # Priority 3: Check GLOBAL cache as fallback
-            elif global_cache_download.exists():
+            if global_cache_download.exists():
                 incomplete_files = list(global_cache_download.glob("*.incomplete"))
-                if incomplete_files:
-                    incomplete_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                    current_size = incomplete_files[0].stat().st_size
-                    found_location = f"global_cache ({incomplete_files[0].name})"
+                for f in incomplete_files:
+                    candidates.append(
+                        (f.stat().st_mtime, f.stat().st_size, f"global_cache ({f.name})")
+                    )
                     if not monitoring_found_file:
-                        logger.info(f"Found incomplete file in global cache: {incomplete_files[0]}")
+                        logger.info(f"Found incomplete file in global cache: {f}")
                         monitoring_found_file = True
+
+            # Use most recently modified source
+            if candidates:
+                candidates.sort(reverse=True)  # Most recent first
+                current_size = candidates[0][1]
+                found_location = candidates[0][2]
 
             # Send progress update ONLY if size actually changed
             # This prevents stale data from corrupting speed calculations
@@ -278,12 +336,18 @@ class DownloadManager:
             # Only send progress when bytes actually increase
             if size_changed:
                 if progress_callback:
-                    overall_downloaded = overall_downloaded_before + current_size
+                    # Calculate NEW bytes downloaded this session
+                    # This fixes resumed download bug - don't count bytes from previous attempt
+                    new_bytes_this_session = current_size - initial_incomplete_size
+                    overall_downloaded = (
+                        overall_downloaded_before + initial_incomplete_size + new_bytes_this_session
+                    )
 
                     if current_size > 0:
                         logger.debug(
                             f"Progress update: {current_size}/{file_size} bytes "
-                            f"({current_size/file_size*100:.1f}%) from {found_location}"
+                            f"({current_size/file_size*100:.1f}%) from {found_location} "
+                            f"(new this session: {new_bytes_this_session:,})"
                         )
 
                     self._send_progress(
@@ -348,6 +412,10 @@ class DownloadManager:
         remaining = overall_total - overall_downloaded
         eta = calculate_eta(remaining, speed)
 
+        # Determine download status - use flag set during initialization
+        status = "resuming" if self._is_resuming and file_idx == 1 else "downloading"
+        initial_bytes = self._initial_bytes_before if self._is_resuming else 0
+
         progress_data: ProgressData = {
             "repo_id": repo_id,
             "current_file": filename,
@@ -359,6 +427,8 @@ class DownloadManager:
             "overall_total": overall_total,
             "speed": speed,
             "eta": eta,
+            "status": status,
+            "initial_bytes": initial_bytes,
             "completed": False,
         }
 

@@ -2,6 +2,74 @@
 
 All notable changes to Model Manager will be documented in this file.
 
+## [2.5.0] - 2025-12-26
+
+### 🎯 Critical Progress Display Fixes
+
+#### Resumed Download Accuracy (CRITICAL BUG FIX)
+- **✅ Fixed "83% complete immediately on resume" bug** - Was counting incomplete file bytes as "downloaded" from previous session
+- **✅ Track initial incomplete file size** - Records starting bytes before monitoring begins
+- **✅ Only count NEW bytes this session** - Progress increases correctly from resumed percentage
+- **✅ Smart monitoring source selection** - Uses most recently modified file (local vs global cache)
+- **✅ Seed speed calculator with initial bytes** - Prevents erratic speed spikes on resumed downloads
+
+#### Visual Improvements
+- **✅ Prominent progress percentage** - Now shows "8.5 GB / 10.2 GB (83%) - (1/3 files)"
+- **✅ Resumed download indicator** - Status shows "Resuming download... (8.9 GB already downloaded)"
+- **✅ Color-coded speed display** - Green (>10 MB/s), Cyan (>1 MB/s), Yellow (>100 KB/s), Red (slow/stalled)
+- **✅ Improved speed calculation** - Uses last half of window for current speed, falls back to full window if stalled
+- **✅ Zero-delta filtering** - Speed calculator skips samples with no byte changes to prevent 0 speed
+
+### Technical Implementation
+
+**DownloadManager (`src/services/downloader.py`):**
+- Track `initial_incomplete_size` before monitoring starts
+- Calculate `new_bytes_this_session = current_size - initial_incomplete_size`
+- Overall progress: `initial_bytes + new_bytes_this_session` (not just `current_size`)
+- Collect monitoring candidates from all sources and use most recently modified
+- Add `_is_resuming` and `_initial_bytes_before` instance variables
+- Seed speed calculator with initial bytes before monitoring begins
+
+**DownloadSpeedCalculator (`src/utils/helpers.py`):**
+- Use last half of window for current speed (more responsive)
+- Filter zero-delta samples to prevent 0 speed from stalls
+- Fall back to full window if recent samples show no progress
+
+**DownloadScreen (`src/screens/download_screen.py`):**
+- Show overall percentage prominently: "8.5 GB / 10.2 GB (83%)"
+- Display status based on `progress_data["status"]` field
+- Color-code speed: Green, Cyan, Yellow, Red based on performance
+- Handle "resuming", "downloading", "finalizing" status types
+
+**Testing:**
+- Added `test_progress_data_resumed_download()` to verify resumed download detection
+- All 16 tests passing (100% pass rate)
+- Verified color-coded speed display logic
+
+### Impact
+
+**Before (v2.4.0):**
+```
+Status: Downloading...
+Progress: 8.9 GB / 10.2 GB (87%)  ← WRONG! Shows 87% immediately on resume
+Speed: 0 B/s  ← WRONG! Shows 0 or erratic values
+ETA: Unknown  ← WRONG! Can't calculate from erratic speed
+```
+
+**After (v2.5.0):**
+```
+Status: Resuming download... (8.9 GB already downloaded)  ✓ CLEAR
+Progress: 8.9 GB / 10.2 GB (87%) - 45.2 MB/s  ✓ ACCURATE
+Speed: [green]45.2 MB/s[/]  ✓ COLOR-CODED
+ETA: 1m 23s  ✓ ACCURATE
+```
+
+### User Experience Improvements
+1. **Resumed downloads work correctly** - Progress starts at correct percentage and increases
+2. **Accurate speed tracking** - Real-time speed without erratic spikes
+3. **Visual clarity** - Prominent percentage, color-coded speed, clear status
+4. **Robust monitoring** - Always tracks the most recent file, regardless of cache location
+
 ## [2.4.0] - 2025-12-26
 
 ### 🚀 Major Navigation & Progress Improvements

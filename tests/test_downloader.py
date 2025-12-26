@@ -109,6 +109,38 @@ class TestDownloadManager:
         assert callback_data["current_file_total"] == 1024
         assert callback_data["overall_downloaded"] == 512
         assert callback_data["overall_total"] == 1024
+        assert callback_data["status"] == "downloading"
+        assert callback_data["initial_bytes"] == 0  # No initial bytes in this test
+
+    def test_progress_data_resumed_download(self, downloader):
+        """Test progress data for resumed download."""
+        callback_data = None
+
+        def callback(data):
+            nonlocal callback_data
+            callback_data = data
+
+        # Mark as resuming to trigger proper status
+        downloader._is_resuming = True
+        downloader._initial_bytes_before = 1024 * 1024
+
+        # Simulate resumed download (started with 1MB already downloaded)
+        downloader._send_progress(
+            callback,
+            "test/model",
+            "test.gguf",
+            1,
+            1,
+            1024 * 1024,  # 1MB
+            1024 * 1024 * 10,  # 10MB total
+            1024 * 1024,  # 1MB overall
+            1024 * 1024 * 10,
+            2.0,  # 2 seconds elapsed (first file, early in session)
+        )
+
+        assert callback_data is not None
+        assert callback_data["status"] == "resuming"
+        assert callback_data["initial_bytes"] == 1024 * 1024
 
     def test_cancel_download(self, downloader):
         """Test download cancellation."""
