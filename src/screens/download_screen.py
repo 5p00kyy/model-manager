@@ -18,6 +18,7 @@ class DownloadScreen(Screen):
 
     class ProgressUpdate(Message):
         """Message sent when download progress updates."""
+
         def __init__(self, progress_data: dict) -> None:
             super().__init__()
             self.progress_data = progress_data
@@ -33,6 +34,7 @@ class DownloadScreen(Screen):
         self.files = files
         self.is_update = is_update
         self.download_active = False
+        self._is_mounted = False
 
     def compose(self) -> ComposeResult:
         """Compose the download screen layout."""
@@ -52,6 +54,7 @@ class DownloadScreen(Screen):
 
                 yield Label("", id="speed-label")
                 yield Label("", id="eta-label")
+                yield Label("", id="elapsed-label")
 
                 yield Label("", id="file-list")
 
@@ -60,17 +63,33 @@ class DownloadScreen(Screen):
     def on_mount(self) -> None:
         """Handle screen mount."""
         import logging
+
         logger = logging.getLogger(__name__)
         logger.info(f"DownloadScreen mounted: repo_id={self.repo_id}, files={len(self.files)}")
-        
+
+        self._is_mounted = True
         self.download_active = True
+        self._download_start_time = None
         self.run_worker(self.download_worker(), exclusive=True)
+
+    def on_unmount(self) -> None:
+        """Handle screen unmount."""
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"DownloadScreen unmounting")
+
+        self._is_mounted = False
+        # Cancel download if still active
+        if self.download_active:
+            self.app.downloader.cancel_download()
 
     async def download_worker(self):
         """Worker to handle the download."""
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         try:
             logger.info(f"Starting download worker for {self.repo_id}")
             app = self.app
@@ -78,16 +97,21 @@ class DownloadScreen(Screen):
             # Create progress callback wrapper that posts messages
             def progress_callback_wrapper(progress_data: dict) -> None:
                 """Wrapper to post progress updates as messages."""
-                logger.debug(f"Progress callback wrapper called: {progress_data.get('current_file', 'N/A')}")
+                logger.debug(
+                    f"Progress callback wrapper called: {progress_data.get('current_file', 'N/A')}"
+                )
                 # Post message to main thread for UI update
                 self.post_message(self.ProgressUpdate(progress_data))
 
             # Await the now-async download_model method
             logger.info("Calling download_model...")
+            import time
+
+            self._download_start_time = time.time()
             success = await app.downloader.download_model(
                 self.repo_id, self.files, progress_callback=progress_callback_wrapper
             )
-            
+
             logger.info(f"Download completed: success={success}")
             self.download_active = False
 
@@ -111,18 +135,28 @@ class DownloadScreen(Screen):
     def on_progress_update(self, message: ProgressUpdate) -> None:
         """Handle progress update messages from worker thread."""
         import logging
+
         logger = logging.getLogger(__name__)
-        logger.info(f"UI UPDATE: {message.progress_data.get('current_file', 'unknown')} - {message.progress_data.get('overall_downloaded', 0)}/{message.progress_data.get('overall_total', 0)} bytes")
+        logger.info(
+            f"UI UPDATE: {message.progress_data.get('current_file', 'unknown')} - {message.progress_data.get('overall_downloaded', 0)}/{message.progress_data.get('overall_total', 0)} bytes"
+        )
         self.update_progress(message.progress_data)
 
     def update_progress(self, progress_data: dict):
         """Update progress display."""
         import logging
         from src.utils.helpers import format_size, format_speed, format_time
-        
+
         logger = logging.getLogger(__name__)
-        logger.debug(f"PROGRESS CALLBACK: {progress_data.get('current_file', 'unknown')} - {progress_data.get('overall_downloaded', 0)}/{progress_data.get('overall_total', 0)} bytes")
-        
+        logger.debug(
+            f"PROGRESS CALLBACK: {progress_data.get('current_file', 'unknown')} - {progress_data.get('overall_downloaded', 0)}/{progress_data.get('overall_total', 0)} bytes"
+        )
+
+        # Guard against updates after unmount
+        if not self._is_mounted:
+            logger.debug("Skipping progress update - screen not mounted")
+            return
+
         try:
             # Overall progress
             overall_pct = (
@@ -168,6 +202,14 @@ class DownloadScreen(Screen):
             else:
                 eta_label.update("ETA: Calculating...")
 
+            # Elapsed time
+            if self._download_start_time:
+                import time
+
+                elapsed = time.time() - self._download_start_time
+                elapsed_label = self.query_one("#elapsed-label", Label)
+                elapsed_label.update(f"Elapsed: {format_time(int(elapsed))}")
+
             # Update status
             status_label = self.query_one("#status-label", Label)
             status_label.update("Downloading...")
@@ -176,35 +218,55 @@ class DownloadScreen(Screen):
 
     def update_completion(self):
         """Update display on completion."""
-        status_label = self.query_one("#status-label", Label)
-        status_label.update("Download completed!")
+        # Guard against updates after unmount
+        if not self._is_mounted:
+            return
 
-        overall_bar = self.query_one("#overall-progress", ProgressBar)
-        overall_bar.update(progress=100)
+        try:
+            status_label = self.query_one("#status-label", Label)
+            status_label.update("Download completed!")
 
-        file_bar = self.query_one("#file-progress", ProgressBar)
-        file_bar.update(progress=100)
+            overall_bar = self.query_one("#overall-progress", ProgressBar)
+            overall_bar.update(progress=100)
 
-        # Update button
-        cancel_btn = self.query_one("#cancel-btn", Button)
-        cancel_btn.label = "Close"
-        cancel_btn.variant = "primary"
+            file_bar = self.query_one("#file-progress", ProgressBar)
+            file_bar.update(progress=100)
 
-        # Notify and refresh main screen
-        self.app.notify("Download completed successfully!")
-        self.app.refresh_models()
+            # Update button
+            cancel_btn = self.query_one("#cancel-btn", Button)
+            cancel_btn.label = "Close"
+            cancel_btn.variant = "primary"
+
+            # Notify and refresh main screen
+            self.app.notify("Download completed successfully!")
+            self.app.refresh_models()
+        except Exception as e:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in update_completion: {e}", exc_info=True)
 
     def update_error(self, message: str | None = None):
         """Update display on error."""
-        status_label = self.query_one("#status-label", Label)
-        status_label.update("Download failed!")
+        # Guard against updates after unmount
+        if not self._is_mounted:
+            return
 
-        cancel_btn = self.query_one("#cancel-btn", Button)
-        cancel_btn.label = "Close"
-        cancel_btn.variant = "error"
+        try:
+            status_label = self.query_one("#status-label", Label)
+            status_label.update("Download failed!")
 
-        error_msg = message or "Download failed. Check logs for details."
-        self.app.notify(error_msg, severity="error")
+            cancel_btn = self.query_one("#cancel-btn", Button)
+            cancel_btn.label = "Close"
+            cancel_btn.variant = "error"
+
+            error_msg = message or "Download failed. Check logs for details."
+            self.app.notify(error_msg, severity="error")
+        except Exception as e:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in update_error: {e}", exc_info=True)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""
