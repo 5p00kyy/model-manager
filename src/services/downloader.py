@@ -201,43 +201,86 @@ class DownloadManager:
         )
 
         # Monitor progress while downloading
-        cache_dir = Path(HUGGINGFACE_HUB_CACHE)
-        logger.debug(f"Monitoring cache directory: {cache_dir}")
+        # When using local_dir, HF creates a LOCAL .cache inside that directory
+        local_cache_dir = local_dir / ".cache" / "huggingface"
+        local_cache_download = local_cache_dir / "download"
+
+        # Also check global cache as fallback
+        global_cache_dir = Path(HUGGINGFACE_HUB_CACHE)
+        global_cache_download = global_cache_dir / "download"
+
+        logger.info(f"Monitoring local cache: {local_cache_download}")
+        logger.debug(f"Fallback global cache: {global_cache_download}")
 
         # Try to find the incomplete file in HF cache
         # HF creates *.incomplete or *.lock files during download
         last_size = 0
         last_update = time.time()
+        monitoring_found_file = False
 
         while not download_future.done():
             if self._cancelled:
                 download_future.cancel()
                 raise asyncio.CancelledError("Download cancelled by user")
 
-            # Look for the downloading file in cache
-            # HF uses complex hash-based paths, so we'll monitor the target location
+            # Look for the downloading file in multiple locations
             target_file = local_dir / filename
             current_size = 0
+            found_location = None
 
-            # Check if file exists and is growing
+            # Priority 1: Check if final file exists and is growing
             if target_file.exists():
                 current_size = target_file.stat().st_size
-            else:
-                # File might still be in HF cache, look for incomplete files
-                # Pattern: .cache/huggingface/download/*.incomplete
-                cache_download = cache_dir / "download"
-                if cache_download.exists():
-                    incomplete_files = list(cache_download.glob("*.incomplete"))
-                    if incomplete_files:
-                        # Use the most recently modified one
-                        incomplete_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                        current_size = incomplete_files[0].stat().st_size
+                found_location = "target_file"
+
+            # Priority 2: Check LOCAL cache for incomplete files
+            elif local_cache_download.exists():
+                incomplete_files = list(local_cache_download.glob("*.incomplete"))
+                if incomplete_files:
+                    # Use the most recently modified one
+                    incomplete_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                    current_size = incomplete_files[0].stat().st_size
+                    found_location = f"local_cache ({incomplete_files[0].name})"
+                    if not monitoring_found_file:
+                        logger.info(f"Found incomplete file: {incomplete_files[0]}")
+                        monitoring_found_file = True
+
+            # Priority 3: Check GLOBAL cache as fallback
+            elif global_cache_download.exists():
+                incomplete_files = list(global_cache_download.glob("*.incomplete"))
+                if incomplete_files:
+                    incomplete_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                    current_size = incomplete_files[0].stat().st_size
+                    found_location = f"global_cache ({incomplete_files[0].name})"
+                    if not monitoring_found_file:
+                        logger.info(f"Found incomplete file in global cache: {incomplete_files[0]}")
+                        monitoring_found_file = True
 
             # Send progress update if size changed or every 500ms
             now = time.time()
-            if current_size > last_size or (now - last_update) >= 0.5:
-                if progress_callback and current_size > 0:
+            time_since_update = now - last_update
+            size_changed = current_size > last_size
+
+            # Log monitoring status periodically
+            if time_since_update >= 2.0 and not monitoring_found_file:
+                logger.warning(
+                    f"Still searching for download file. Checked: local_cache={local_cache_download.exists()}, "
+                    f"global_cache={global_cache_download.exists()}, target={target_file.exists()}"
+                )
+                last_update = now  # Reset to avoid spam
+
+            if size_changed or time_since_update >= 0.5:
+                if progress_callback:
+                    # Always send updates during monitoring, even if size is 0
+                    # This keeps the UI responsive and shows we're monitoring
                     overall_downloaded = overall_downloaded_before + current_size
+
+                    if current_size > 0:
+                        logger.debug(
+                            f"Progress update: {current_size}/{file_size} bytes "
+                            f"({current_size/file_size*100:.1f}%) from {found_location}"
+                        )
+
                     self._send_progress(
                         progress_callback,
                         repo_id,
