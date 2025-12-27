@@ -242,7 +242,8 @@ class DownloadScreen(Screen):
                     initial_bytes = progress_data.get("initial_bytes", 0)
                     if initial_bytes > 0:
                         status_label.update(
-                            f"[cyan]Resuming download ({format_size(initial_bytes)} already downloaded)[/]"
+                            f"[cyan]Resuming download "
+                            f"({format_size(initial_bytes)} already downloaded)[/]"
                         )
                     else:
                         status_label.update("[green]Downloading...[/]")

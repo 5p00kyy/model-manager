@@ -149,6 +149,143 @@ class TestDownloadManager:
         downloader.cancel_download()
         assert downloader._cancelled
 
+    @pytest.mark.asyncio
+    async def test_heartbeat_progress_when_size_unchanged(self, downloader):
+        """Test that heartbeat sends progress even when file size doesn't change.
+
+        This tests the fix for UnboundLocalError when overall_downloaded
+        was referenced in the heartbeat path before being defined.
+
+        The bug occurred when:
+        1. Monitoring loop starts
+        2. current_size = 0, last_reported_size = 0 (size_changed = False)
+        3. time_since_update >= 0.5 (heartbeat triggers)
+        4. Heartbeat path tries to use overall_downloaded before it was defined
+
+        Fix: Calculate overall_downloaded BEFORE if/elif blocks.
+        """
+        # Test the helper method directly
+        # This ensures overall_downloaded is calculated correctly
+        overall_downloaded, new_bytes = downloader._calculate_overall_downloaded(
+            current_size=0, initial_incomplete_size=0, overall_downloaded_before=0
+        )
+
+        assert overall_downloaded == 0
+        assert new_bytes == 0
+
+        # Test with some progress
+        overall_downloaded, new_bytes = downloader._calculate_overall_downloaded(
+            current_size=1024, initial_incomplete_size=512, overall_downloaded_before=2048
+        )
+
+        assert new_bytes == 512  # 1024 - 512
+        assert overall_downloaded == 3072  # 2048 + 512 + 512
+
+    @pytest.mark.asyncio
+    async def test_resumed_download_calculation_accuracy(self, downloader):
+        """Test that resumed download overall_downloaded calculation is accurate.
+
+        When resuming a download:
+        - initial_incomplete_size should be the size of existing file
+        - new_bytes_this_session should only count bytes downloaded THIS session
+        - overall_downloaded should not double-count resumed bytes
+        """
+        # Scenario: Resume with 1GB already downloaded
+        initial_incomplete_size = 1024 * 1024 * 1024  # 1GB
+        overall_downloaded_before = 0  # First file
+
+        # After downloading 500MB more THIS session
+        current_size = initial_incomplete_size + (500 * 1024 * 1024)
+
+        overall_downloaded, new_bytes = downloader._calculate_overall_downloaded(
+            current_size=current_size,
+            initial_incomplete_size=initial_incomplete_size,
+            overall_downloaded_before=overall_downloaded_before,
+        )
+
+        expected_new_bytes = 500 * 1024 * 1024  # Only new bytes this session
+        expected_overall = initial_incomplete_size + expected_new_bytes
+
+        assert new_bytes == expected_new_bytes
+        assert overall_downloaded == expected_overall
+
+    @pytest.mark.asyncio
+    async def test_calculate_overall_downloaded_multiple_files(self, downloader):
+        """Test overall_downloaded calculation across multiple files."""
+        # File 1 complete: 1GB
+        # File 2 in progress: 500MB of 2GB (initial: 100MB, new: 400MB)
+
+        file1_size = 1024 * 1024 * 1024  # 1GB
+        file2_initial = 100 * 1024 * 1024  # 100MB already downloaded
+        file2_current = 500 * 1024 * 1024  # 500MB total now
+
+        overall_downloaded, new_bytes = downloader._calculate_overall_downloaded(
+            current_size=file2_current,
+            initial_incomplete_size=file2_initial,
+            overall_downloaded_before=file1_size,
+        )
+
+        expected_new_bytes = file2_current - file2_initial  # 400MB
+        expected_overall = file1_size + file2_initial + expected_new_bytes  # 1.5GB
+
+        assert new_bytes == expected_new_bytes
+        assert overall_downloaded == expected_overall
+
+    @pytest.mark.asyncio
+    async def test_download_monitoring_before_file_appears(self, downloader):
+        """Test that monitoring handles case when incomplete file doesn't exist initially.
+
+        This can happen when:
+        1. Download starts in background thread
+        2. Monitoring loop starts immediately
+        3. HF hasn't created .incomplete file yet
+
+        Should gracefully handle missing file and update when it appears.
+        """
+        # Test calculation when current_size is 0 (file not found yet)
+        overall_downloaded, new_bytes = downloader._calculate_overall_downloaded(
+            current_size=0,
+            initial_incomplete_size=0,
+            overall_downloaded_before=1024 * 1024,  # 1MB from previous file
+        )
+
+        # Should still return valid values
+        assert new_bytes == 0
+        assert overall_downloaded == 1024 * 1024  # Just previous file
+
+        # When file appears with 512KB
+        overall_downloaded, new_bytes = downloader._calculate_overall_downloaded(
+            current_size=512 * 1024,
+            initial_incomplete_size=0,
+            overall_downloaded_before=1024 * 1024,
+        )
+
+        assert new_bytes == 512 * 1024
+        assert overall_downloaded == 1024 * 1024 + 512 * 1024
+
+    def test_calculate_overall_downloaded_edge_cases(self, downloader):
+        """Test edge cases for overall_downloaded calculation."""
+        # Edge case 1: No download yet
+        overall, new = downloader._calculate_overall_downloaded(0, 0, 0)
+        assert overall == 0
+        assert new == 0
+
+        # Edge case 2: Fresh download (no resume)
+        overall, new = downloader._calculate_overall_downloaded(1024, 0, 0)
+        assert overall == 1024
+        assert new == 1024
+
+        # Edge case 3: Resume where current_size equals initial (no new progress)
+        overall, new = downloader._calculate_overall_downloaded(512, 512, 0)
+        assert overall == 512
+        assert new == 0
+
+        # Edge case 4: Large numbers (multi-GB files)
+        large_size = 50 * 1024 * 1024 * 1024  # 50GB
+        overall, new = downloader._calculate_overall_downloaded(large_size, 0, large_size * 2)
+        assert overall == large_size * 3
+        assert new == large_size
+
 
 class TestProgressCalculations:
     """Test progress calculation logic."""

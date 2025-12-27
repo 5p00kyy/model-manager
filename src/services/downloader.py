@@ -16,6 +16,11 @@ from src.exceptions import DownloadError, HuggingFaceError
 
 logger = logging.getLogger(__name__)
 
+# Progress monitoring constants
+PROGRESS_HEARTBEAT_INTERVAL = 0.5  # seconds - send progress updates even when stalled
+PROGRESS_POLL_INTERVAL = 0.1  # seconds - how often to check file size
+SPEED_CALC_WINDOW_SIZE = 10  # samples - moving window for speed calculation
+
 
 class DownloadManager:
     """Download manager with byte-level progress tracking."""
@@ -52,7 +57,7 @@ class DownloadManager:
         start_time = time.time()
 
         # Initialize speed calculator for accurate real-time speed tracking
-        self._speed_calculator = DownloadSpeedCalculator(window_size=10)
+        self._speed_calculator = DownloadSpeedCalculator(window_size=SPEED_CALC_WINDOW_SIZE)
 
         # Calculate initial bytes already downloaded (for resumed downloads)
         self._initial_bytes_before = 0
@@ -155,17 +160,20 @@ class DownloadManager:
                         )
                         raise DownloadError(f"HuggingFace error: {e}") from e
                     except OSError as e:
-                        # Handle file system, I/O, and network errors (includes ConnectionError, TimeoutError)
+                        # Handle file system, I/O, and network errors
+                        # (includes ConnectionError, TimeoutError)
                         retry_count += 1
                         if retry_count < max_retries:
                             logger.warning(
-                                f"Error downloading {filename} (attempt {retry_count}/{max_retries}): {e}. Retrying...",
+                                f"Error downloading {filename} (attempt "
+                                f"{retry_count}/{max_retries}): {e}. Retrying...",
                                 exc_info=True,
                             )
                             await asyncio.sleep(2**retry_count)
                         else:
                             logger.error(
-                                f"Failed to download {filename} after {max_retries} attempts: {e}",
+                                f"Failed to download {filename} "
+                                f"after {max_retries} attempts: {e}",
                                 exc_info=True,
                             )
                             raise DownloadError(f"Failed to download {filename}: {e}") from e
@@ -277,12 +285,12 @@ class DownloadManager:
             candidates.sort(reverse=True)  # Most recent first
             initial_incomplete_size = candidates[0][1]
             logger.info(
-                f"Initial incomplete file size: {initial_incomplete_size:,} bytes (resuming download)"
+                f"Initial incomplete file size: {initial_incomplete_size:,} bytes "
+                f"(resuming download)"
             )
 
         # Try to find the incomplete file in HF cache
         # HF creates *.incomplete or *.lock files during download
-        last_size = 0
         last_reported_size = 0  # Track what we last reported to avoid stale updates
         last_update = time.time()
         monitoring_found_file = False
@@ -334,6 +342,12 @@ class DownloadManager:
                 current_size = candidates[0][1]
                 found_location = candidates[0][2]
 
+            # Calculate overall progress for this iteration
+            # This must be done BEFORE the if/elif blocks to avoid UnboundLocalError
+            overall_downloaded, new_bytes_this_session = self._calculate_overall_downloaded(
+                current_size, initial_incomplete_size, overall_downloaded_before
+            )
+
             # Send progress update ONLY if size actually changed
             # This prevents stale data from corrupting speed calculations
             now = time.time()
@@ -343,21 +357,16 @@ class DownloadManager:
             # Log monitoring status periodically
             if time_since_update >= 2.0 and not monitoring_found_file:
                 logger.warning(
-                    f"Still searching for download file. Checked: local_cache={local_cache_download.exists()}, "
-                    f"global_cache={global_cache_download.exists()}, target={target_file.exists()}"
+                    f"Still searching for download file. Checked: "
+                    f"local_cache={local_cache_download.exists()}, "
+                    f"global_cache={global_cache_download.exists()}, "
+                    f"target={target_file.exists()}"
                 )
                 last_update = now  # Reset to avoid spam
 
             # Only send progress when bytes actually increase
             if size_changed:
                 if progress_callback:
-                    # Calculate NEW bytes downloaded this session
-                    # This fixes resumed download bug - don't count bytes from previous attempt
-                    new_bytes_this_session = current_size - initial_incomplete_size
-                    overall_downloaded = (
-                        overall_downloaded_before + initial_incomplete_size + new_bytes_this_session
-                    )
-
                     if current_size > 0:
                         logger.debug(
                             f"Progress update: {current_size}/{file_size} bytes "
@@ -378,27 +387,27 @@ class DownloadManager:
                         start_time,
                     )
                 last_reported_size = current_size
-                last_size = current_size
                 last_update = now
-            elif time_since_update >= 0.5:
+            elif time_since_update >= PROGRESS_HEARTBEAT_INTERVAL:
                 # Heartbeat - send progress update to keep UI alive even when size doesn't change
                 # This prevents the UI from appearing frozen during slow periods
-                self._send_progress(
-                    progress_callback,
-                    repo_id,
-                    filename,
-                    file_idx + 1,
-                    total_files,
-                    current_size,
-                    file_size,
-                    overall_downloaded,
-                    total_size,
-                    start_time,
-                )
+                if progress_callback:
+                    self._send_progress(
+                        progress_callback,
+                        repo_id,
+                        filename,
+                        file_idx + 1,
+                        total_files,
+                        current_size,
+                        file_size,
+                        overall_downloaded,
+                        total_size,
+                        start_time,
+                    )
                 last_update = now
 
-            # Sleep briefly before next check - reduced from 300ms to 100ms for smoother updates
-            await asyncio.sleep(0.1)
+            # Sleep briefly before next check for smoother updates
+            await asyncio.sleep(PROGRESS_POLL_INTERVAL)
 
         # Wait for download to complete
         await download_future
@@ -419,6 +428,30 @@ class DownloadManager:
                 start_time,
             )
 
+    def _calculate_overall_downloaded(
+        self, current_size: int, initial_incomplete_size: int, overall_downloaded_before: int
+    ) -> tuple[int, int]:
+        """
+        Calculate total bytes downloaded across all files.
+
+        For resumed downloads:
+        - Don't count initial_incomplete_size twice (it's in overall_downloaded_before)
+        - Only count NEW bytes downloaded THIS session
+
+        Args:
+            current_size: Current size of the incomplete file being monitored
+            initial_incomplete_size: Size of incomplete file at start of monitoring
+            overall_downloaded_before: Bytes already downloaded from previous files
+
+        Returns:
+            Tuple of (overall_downloaded, new_bytes_this_session)
+        """
+        new_bytes_this_session = current_size - initial_incomplete_size
+        overall_downloaded = (
+            overall_downloaded_before + initial_incomplete_size + new_bytes_this_session
+        )
+        return overall_downloaded, new_bytes_this_session
+
     def _send_progress(
         self,
         callback,
@@ -432,8 +465,7 @@ class DownloadManager:
         overall_total,
         start_time,
     ):
-        """Send progress update."""
-        elapsed = time.time() - start_time
+        """Send progress update to callback with calculated speed and ETA."""
         # Use speed calculator for accurate real-time speed (moving window average)
         speed = self._speed_calculator.update(overall_downloaded) if self._speed_calculator else 0
         remaining = overall_total - overall_downloaded
@@ -460,7 +492,8 @@ class DownloadManager:
         }
 
         logger.debug(
-            f"Progress: {filename} - {file_downloaded}/{file_total} bytes (overall: {overall_downloaded}/{overall_total})"
+            f"Progress: {filename} - {file_downloaded}/{file_total} bytes "
+            f"(overall: {overall_downloaded}/{overall_total})"
         )
         callback(progress_data)
 
@@ -474,9 +507,7 @@ class DownloadManager:
     ) -> tuple[bool, str]:
         """Validate download can proceed."""
         try:
-            # Check disk space on models directory (not model-specific parent which may not exist)
-            local_dir = self.storage.get_model_path(repo_id)
-            # Use the models directory itself, which always exists
+            # Check disk space on models directory (always exists)
             models_dir = self.storage.models_dir
             stat = shutil.disk_usage(models_dir)
             available_space = stat.free
