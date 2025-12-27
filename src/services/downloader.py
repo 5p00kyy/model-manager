@@ -12,6 +12,7 @@ from huggingface_hub import hf_hub_download
 from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 
 from src.utils.helpers import ProgressCallback, ProgressData, DownloadSpeedCalculator, calculate_eta
+from src.exceptions import DownloadError, HuggingFaceError
 
 logger = logging.getLogger(__name__)
 
@@ -147,20 +148,27 @@ class DownloadManager:
                     except asyncio.CancelledError:
                         logger.info(f"Download of {filename} cancelled")
                         raise
-                    except Exception as e:
+                    except HuggingFaceError as e:
+                        # Handle HuggingFace API errors - don't retry these
+                        logger.error(
+                            f"HuggingFace API error downloading {filename}: {e}", exc_info=True
+                        )
+                        raise DownloadError(f"HuggingFace error: {e}") from e
+                    except OSError as e:
+                        # Handle file system, I/O, and network errors (includes ConnectionError, TimeoutError)
                         retry_count += 1
                         if retry_count < max_retries:
                             logger.warning(
-                                f"Error downloading {filename} (attempt {retry_count}/{max_retries}): {e}. Retrying..."
+                                f"Error downloading {filename} (attempt {retry_count}/{max_retries}): {e}. Retrying...",
+                                exc_info=True,
                             )
-                            # Wait before retrying (exponential backoff)
                             await asyncio.sleep(2**retry_count)
                         else:
                             logger.error(
                                 f"Failed to download {filename} after {max_retries} attempts: {e}",
                                 exc_info=True,
                             )
-                            return False
+                            raise DownloadError(f"Failed to download {filename}: {e}") from e
 
             # Get commit SHA and save metadata
             logger.info(f"Fetching commit SHA for {repo_id}")
@@ -191,9 +199,16 @@ class DownloadManager:
         except asyncio.CancelledError:
             logger.info("Download cancelled")
             return False
-        except Exception as e:
-            logger.error(f"Error during download: {e}", exc_info=True)
-            return False
+        except DownloadError:
+            # Re-raise DownloadError as-is
+            raise
+        except HuggingFaceError as e:
+            logger.error(f"HuggingFace API error: {e}", exc_info=True)
+            raise DownloadError(f"HuggingFace error: {e}") from e
+        except OSError as e:
+            # Handle file system, I/O, and network errors
+            logger.error(f"System error during download: {e}", exc_info=True)
+            raise DownloadError(f"System error: {e}") from e
 
     async def _download_with_progress(
         self,
@@ -366,12 +381,24 @@ class DownloadManager:
                 last_size = current_size
                 last_update = now
             elif time_since_update >= 0.5:
-                # Heartbeat - don't update speed calculator, just keep UI alive
-                # Send same progress to show we're still monitoring
+                # Heartbeat - send progress update to keep UI alive even when size doesn't change
+                # This prevents the UI from appearing frozen during slow periods
+                self._send_progress(
+                    progress_callback,
+                    repo_id,
+                    filename,
+                    file_idx + 1,
+                    total_files,
+                    current_size,
+                    file_size,
+                    overall_downloaded,
+                    total_size,
+                    start_time,
+                )
                 last_update = now
 
-            # Sleep briefly before next check
-            await asyncio.sleep(0.3)
+            # Sleep briefly before next check - reduced from 300ms to 100ms for smoother updates
+            await asyncio.sleep(0.1)
 
         # Wait for download to complete
         await download_future
