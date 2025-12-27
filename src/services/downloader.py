@@ -474,9 +474,11 @@ class DownloadManager:
     ) -> tuple[bool, str]:
         """Validate download can proceed."""
         try:
-            # Check disk space
+            # Check disk space on models directory (not model-specific parent which may not exist)
             local_dir = self.storage.get_model_path(repo_id)
-            stat = shutil.disk_usage(local_dir.parent)
+            # Use the models directory itself, which always exists
+            models_dir = self.storage.models_dir
+            stat = shutil.disk_usage(models_dir)
             available_space = stat.free
 
             # Require 10% buffer

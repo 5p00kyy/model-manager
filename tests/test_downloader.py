@@ -39,6 +39,7 @@ class TestDownloadManager:
         storage = Mock()
         storage.get_model_path = Mock(return_value=temp_dir / "test_model")
         storage.save_model_metadata = Mock()
+        storage.models_dir = temp_dir  # Add models_dir for disk usage checks
         return storage
 
     @pytest.fixture
