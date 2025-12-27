@@ -103,6 +103,8 @@ Footer {
 DataTable {
     background: $surface;
     color: $text-primary;
+    min-width: 40;  /* Minimum width to prevent squishing */
+    width: 100%;    /* Use full available width */
 }
 
 DataTable > .datatable--header {
@@ -123,6 +125,12 @@ DataTable:focus > .datatable--cursor {
 
 DataTable > .datatable--hover {
     background: $surface-hover;
+}
+
+/* Ensure table columns don't overflow */
+DataTable .datatable--cell {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* ===== Input ===== */
@@ -167,14 +175,62 @@ Button.-error {
 ProgressBar {
     background: $surface;
     color: $primary;
+    height: 1;
 }
 
 ProgressBar > .bar--bar {
     color: $primary;
+    text-style: bold;
 }
 
 ProgressBar > .bar--complete {
     color: $success;
+    text-style: bold;
+}
+
+/* Enhanced progress bar for overall progress */
+#overall-progress {
+    height: 2;
+    border: solid $primary-dim;
+    background: $surface;
+}
+
+#overall-progress > .bar--bar {
+    color: $primary-bright;
+    text-style: bold;
+}
+
+/* File progress bar */
+#file-progress {
+    height: 1;
+    background: $surface-hover;
+}
+
+/* Progress panel container */
+.progress-panel {
+    background: $surface;
+    border: thick $border;
+    padding: 2;
+    margin: 1;
+}
+
+/* Progress containers for better hierarchy */
+.progress-main {
+    background: $surface;
+    padding: 1 2;
+    margin-bottom: 1;
+    border-bottom: solid $border;
+}
+
+.progress-details {
+    background: $surface;
+    padding: 1 2;
+}
+
+.progress-stats {
+    background: $surface;
+    padding: 1 2;
+    color: $text-secondary;
 }
 
 /* ===== Status Badges ===== */
@@ -252,6 +308,17 @@ ProgressBar > .bar--complete {
 
 .status-error {
     color: $error;
+}
+
+/* ===== Container Specific Styles ===== */
+#quant-container {
+    width: 100%;
+    height: auto;
+}
+
+#quant-table {
+    width: 100%;
+    min-width: 50;
 }
 
 /* ===== Responsive Design ===== */
