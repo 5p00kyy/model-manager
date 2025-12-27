@@ -2,6 +2,60 @@
 
 All notable changes to Model Manager will be documented in this file.
 
+## [2.5.1] - 2025-12-27
+
+### 🔧 Critical Bug Fixes
+
+#### UnboundLocalError on Download Start (CRITICAL)
+- **✅ Fixed crash when starting downloads** - Variable `overall_downloaded` referenced before assignment
+- **✅ Bug occurred in heartbeat code path** - When file size didn't change but heartbeat triggered (≥0.5s)
+- **✅ Root cause:** Variable only defined inside `if size_changed:` block, but used in `elif` heartbeat block
+- **✅ Solution:** Calculate `overall_downloaded` BEFORE conditional blocks using new helper method
+
+### ✨ Code Quality Improvements
+
+**Constants Added:**
+- `PROGRESS_HEARTBEAT_INTERVAL = 0.5` - How often to send heartbeat updates
+- `PROGRESS_POLL_INTERVAL = 0.1` - How often to check file size
+- `SPEED_CALC_WINDOW_SIZE = 10` - Moving window size for speed calculation
+
+**New Helper Method:**
+- `_calculate_overall_downloaded()` - Encapsulates progress calculation logic
+- Returns tuple of (overall_downloaded, new_bytes_this_session)
+- Properly handles resumed downloads without double-counting bytes
+
+**Enhanced Documentation:**
+- Added comprehensive docstring for `_download_with_progress()`
+- Documents key features, calculation logic, monitoring strategy
+- Explains all parameters and edge cases
+
+**Error Handling:**
+- Added permission error handling for cache directory access
+- Graceful fallback when local/global cache is inaccessible
+
+### 🧪 Test Coverage
+
+**Added 5 New Test Cases (21 total, all passing):**
+1. `test_heartbeat_progress_when_size_unchanged` - Tests the UnboundLocalError fix
+2. `test_resumed_download_calculation_accuracy` - Validates resume math (1GB + 500MB ≠ 2.5GB)
+3. `test_calculate_overall_downloaded_multiple_files` - Tests multi-file progress
+4. `test_download_monitoring_before_file_appears` - Tests file not found initially
+5. `test_calculate_overall_downloaded_edge_cases` - Tests boundary conditions
+
+**Test Results:**
+- 21/21 tests passing ✅
+- 0 failures ✅
+- Test duration: 0.27s ✅
+
+### 📊 Code Quality Metrics
+
+- **Black formatting:** ✅ All files compliant (100 char line length)
+- **Flake8 linting:** ✅ Zero issues
+- **Type hints:** ✅ All functions properly typed
+- **Test coverage:** ✅ All critical paths covered
+
+---
+
 ## [2.5.0] - 2025-12-26
 
 ### 🎯 Critical Progress Display Fixes
