@@ -1,5 +1,7 @@
 """Model detail screen."""
 
+import logging
+
 from textual import events
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
@@ -11,6 +13,8 @@ from src.widgets.section_header import SectionHeader
 from src.widgets.modal import Modal
 from src.widgets.loading import LoadingSpinner
 from src.exceptions import HuggingFaceError
+
+logger = logging.getLogger(__name__)
 
 
 class DetailScreen(Screen):
@@ -68,10 +72,10 @@ class DetailScreen(Screen):
                 # Available quantizations (for remote models)
                 if self.is_remote:
                     yield SectionHeader("Available Quantizations")
-                    with Horizontal():
+                    with Container(id="quant-container"):
                         yield DataTable(id="quant-table", classes="model-list")
                         yield LoadingSpinner(id="quant-spinner", visible=False)
-                    yield Static("Loading quantizations...", id="quant-status")
+                        yield Static("Loading quantizations...", id="quant-status")
 
                 # Action buttons
                 with Horizontal():
@@ -154,16 +158,23 @@ class DetailScreen(Screen):
             status = self.query_one("#quant-status", Static)
             status.update(f"Error: {e}")
             self.app.notify(f"Failed to load quantizations: {e}", severity="error")
-        except Exception as e:
+            logger.error(f"HuggingFace error loading quantizations: {e}", exc_info=True)
+        except OSError as e:
             status = self.query_one("#quant-status", Static)
-            status.update(f"Error: {e}")
-            self.app.notify(f"Failed to load quantizations: {e}", severity="error")
+            status.update(f"Network error: {e}")
+            self.app.notify(f"Network error loading quantizations: {e}", severity="error")
+            logger.error(f"Network error loading quantizations: {e}", exc_info=True)
+        except ValueError as e:
+            status = self.query_one("#quant-status", Static)
+            status.update(f"Invalid data: {e}")
+            self.app.notify(f"Invalid data: {e}", severity="error")
+            logger.error(f"Invalid data error: {e}", exc_info=True)
         finally:
             if spinner:
                 spinner.visible = False
 
     def update_quant_table(self):
-        """Update the quantization table."""
+        """Update the quantization table with responsive column widths."""
         from src.utils.helpers import format_size
 
         table = self.query_one("#quant-table", DataTable)
@@ -173,16 +184,31 @@ class DetailScreen(Screen):
         # Clear and rebuild columns
         table.clear(columns=True)
 
-        # Add columns based on terminal width with minimum widths
-        if width >= 60:
-            # Desktop/Tablet: All columns with proper widths
-            table.add_column("Quantization", width=25)
-            table.add_column("Files", width=15)
-            table.add_column("Size", width=15)
+        # Calculate flexible column widths based on available space
+        # Reserve space for borders, padding, and cursor
+        usable_width = max(width - 6, 40)  # Minimum 40 cols usable
+
+        # Add columns based on terminal width with flexible sizing
+        if width >= 80:
+            # Desktop: All columns with proportional widths
+            quant_width = int(usable_width * 0.50)  # 50% for quantization name
+            files_width = int(usable_width * 0.25)  # 25% for file count
+            size_width = int(usable_width * 0.25)  # 25% for size
+            table.add_column("Quantization", width=quant_width)
+            table.add_column("Files", width=files_width)
+            table.add_column("Size", width=size_width)
+        elif width >= 60:
+            # Tablet: Skip Files column, wider columns
+            quant_width = int(usable_width * 0.60)  # 60% for quantization
+            size_width = int(usable_width * 0.40)  # 40% for size
+            table.add_column("Quantization", width=quant_width)
+            table.add_column("Size", width=size_width)
         else:
-            # Mobile: Essential columns only
-            table.add_column("Quantization", width=25)
-            table.add_column("Size", width=15)
+            # Mobile: Essential columns only, maximize use of space
+            quant_width = int(usable_width * 0.55)  # 55% for quantization
+            size_width = int(usable_width * 0.45)  # 45% for size
+            table.add_column("Quantization", width=quant_width)
+            table.add_column("Size", width=size_width)
 
         table.cursor_type = "row"
 
@@ -198,7 +224,7 @@ class DetailScreen(Screen):
             size = format_size(quant["total_size"])
 
             # Build row conditionally based on terminal width
-            if width >= 60:
+            if width >= 80:
                 table.add_row(name, f"{file_count} file(s)", size)
             else:
                 table.add_row(name, size)
@@ -270,8 +296,9 @@ class DetailScreen(Screen):
             table = self.query_one("#quant-table", DataTable)
             if table.row_count > 0:
                 table.focus()
-        except Exception:
-            pass  # Table might not exist if we navigated away
+        except LookupError:
+            # Table might not exist if we navigated away
+            pass
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle Enter key on table row - directly start download."""

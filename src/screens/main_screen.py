@@ -49,29 +49,42 @@ class MainScreen(Screen):
         self.refresh_table()
 
     def _setup_table_columns(self) -> None:
-        """Setup table columns based on terminal width."""
+        """Setup table columns based on terminal width with flexible sizing."""
         table = self.query_one("#model-table", DataTable)
         width = self.app.size.width
 
         # Clear existing columns
         table.clear(columns=True)
 
-        # Add columns based on available width with minimum widths for readability
+        # Calculate flexible column widths based on available space
+        # Reserve space for borders, padding, and cursor
+        usable_width = max(width - 6, 40)  # Minimum 40 cols usable
+
+        # Add columns based on available width with proportional sizing
         if width >= 80:
-            # Desktop: All columns with proper widths
-            table.add_column("Model", width=45)
-            table.add_column("Files", width=12)
-            table.add_column("Size", width=12)
-            table.add_column("Status", width=15)
+            # Desktop: All columns with proportional widths
+            model_width = int(usable_width * 0.50)  # 50% for model name
+            files_width = int(usable_width * 0.15)  # 15% for file count
+            size_width = int(usable_width * 0.15)  # 15% for size
+            status_width = int(usable_width * 0.20)  # 20% for status
+            table.add_column("Model", width=model_width)
+            table.add_column("Files", width=files_width)
+            table.add_column("Size", width=size_width)
+            table.add_column("Status", width=status_width)
         elif width >= 60:
-            # Tablet: Skip Files column
-            table.add_column("Model", width=35)
-            table.add_column("Size", width=12)
-            table.add_column("Status", width=15)
+            # Tablet: Skip Files column, wider columns
+            model_width = int(usable_width * 0.50)  # 50% for model
+            size_width = int(usable_width * 0.25)  # 25% for size
+            status_width = int(usable_width * 0.25)  # 25% for status
+            table.add_column("Model", width=model_width)
+            table.add_column("Size", width=size_width)
+            table.add_column("Status", width=status_width)
         else:
-            # Mobile: Essential only
-            table.add_column("Model", width=30)
-            table.add_column("Status", width=15)
+            # Mobile: Essential only, maximize use of space
+            model_width = int(usable_width * 0.60)  # 60% for model
+            status_width = int(usable_width * 0.40)  # 40% for status
+            table.add_column("Model", width=model_width)
+            table.add_column("Status", width=status_width)
 
         table.cursor_type = "row"
 

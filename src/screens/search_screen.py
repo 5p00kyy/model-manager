@@ -55,29 +55,41 @@ class SearchScreen(Screen):
         self.update_results()
 
     def _setup_table_columns(self) -> None:
-        """Setup table columns based on terminal width."""
+        """Setup table columns based on terminal width with flexible sizing."""
         table = self.query_one("#results-table", DataTable)
         width = self.app.size.width
 
         # Clear existing columns
         table.clear(columns=True)
 
-        # Add columns based on available width with minimum widths for readability
+        # Calculate flexible column widths based on available space
+        usable_width = max(width - 6, 40)  # Reserve space for borders, minimum 40 cols
+
+        # Add columns based on available width with proportional sizing
         if width >= 80:
-            # Desktop: All columns with proper widths
-            table.add_column("Model", width=35)
-            table.add_column("Author", width=20)
-            table.add_column("Downloads", width=15)
-            table.add_column("Description", width=None)  # Flexible width
+            # Desktop: All columns with proportional widths
+            model_width = int(usable_width * 0.30)  # 30% for model
+            author_width = int(usable_width * 0.20)  # 20% for author
+            downloads_width = int(usable_width * 0.15)  # 15% for downloads
+            desc_width = int(usable_width * 0.35)  # 35% for description
+            table.add_column("Model", width=model_width)
+            table.add_column("Author", width=author_width)
+            table.add_column("Downloads", width=downloads_width)
+            table.add_column("Description", width=desc_width)
         elif width >= 60:
-            # Tablet: Skip Description
-            table.add_column("Model", width=30)
-            table.add_column("Author", width=18)
-            table.add_column("Downloads", width=15)
+            # Tablet: Skip Description, wider columns
+            model_width = int(usable_width * 0.45)  # 45% for model
+            author_width = int(usable_width * 0.30)  # 30% for author
+            downloads_width = int(usable_width * 0.25)  # 25% for downloads
+            table.add_column("Model", width=model_width)
+            table.add_column("Author", width=author_width)
+            table.add_column("Downloads", width=downloads_width)
         else:
-            # Mobile: Essential only
-            table.add_column("Model", width=30)
-            table.add_column("Downloads", width=15)
+            # Mobile: Essential only, maximize use of space
+            model_width = int(usable_width * 0.65)  # 65% for model
+            downloads_width = int(usable_width * 0.35)  # 35% for downloads
+            table.add_column("Model", width=model_width)
+            table.add_column("Downloads", width=downloads_width)
 
         table.cursor_type = "row"
 
