@@ -1,21 +1,24 @@
 """Download screen with progress tracking."""
 
 import asyncio
+import logging
 from typing import List
 
 from textual.app import ComposeResult
 from textual.containers import Container, Vertical
 from textual.message import Message
 from textual.screen import Screen
-from textual.widgets import Header, ProgressBar, Label, Button
+from textual.widgets import Header, ProgressBar, Label, Button, Static
 from textual.binding import Binding
 
 from src.widgets.section_header import SectionHeader
 from src.exceptions import ModelManagerException, DownloadError
 
+logger = logging.getLogger(__name__)
+
 
 class DownloadScreen(Screen):
-    """Screen showing download progress."""
+    """Screen showing download progress with clean, professional design."""
 
     class ProgressUpdate(Message):
         """Message sent when download progress updates."""
@@ -38,40 +41,39 @@ class DownloadScreen(Screen):
         self._is_mounted = False
 
     def compose(self) -> ComposeResult:
-        """Compose the download screen layout with improved hierarchy."""
+        """Compose the download screen layout - clean and simple."""
         yield Header()
 
         with Container():
             action = "Updating" if self.is_update else "Downloading"
             yield SectionHeader(f"{action}: {self.repo_id}")
 
+            # Simple vertical layout - no nested containers to avoid query issues
             with Vertical(classes="progress-panel"):
-                # Status header
+                # Status
                 yield Label("Preparing download...", id="status-label")
+                yield Static("", id="status-detail")
 
-                # Main progress section
-                with Container(classes="progress-main"):
-                    yield Label("", id="progress-label")
-                    yield ProgressBar(total=100, show_eta=False, id="overall-progress")
+                # Overall Progress
+                yield Static("Overall Progress", classes="section-label")
+                yield Label("0 B / 0 B (0%)", id="overall-label")
+                yield ProgressBar(total=100, show_eta=False, id="overall-progress")
 
-                # Current file section
-                with Container(classes="progress-details"):
-                    yield Label("", id="file-label")
-                    yield ProgressBar(total=100, show_eta=False, id="file-progress")
+                # Current File
+                yield Static("Current File", classes="section-label")
+                yield Label("Waiting...", id="file-label")
+                yield ProgressBar(total=100, show_eta=False, id="file-progress")
 
-                # Statistics section
-                with Container(classes="progress-stats"):
-                    yield Label("", id="speed-label")
-                    yield Label("", id="eta-label")
-                    yield Label("", id="elapsed-label")
+                # Download Statistics
+                yield Static("Download Statistics", classes="section-label")
+                yield Label("Speed: Calculating...", id="speed-label")
+                yield Label("ETA: Calculating...", id="eta-label")
+                yield Label("Elapsed: 0s", id="elapsed-label")
 
             yield Button("Cancel", variant="error", id="cancel-btn")
 
     def on_mount(self) -> None:
         """Handle screen mount."""
-        import logging
-
-        logger = logging.getLogger(__name__)
         logger.info(f"DownloadScreen mounted: repo_id={self.repo_id}, files={len(self.files)}")
 
         self._is_mounted = True
@@ -81,10 +83,7 @@ class DownloadScreen(Screen):
 
     def on_unmount(self) -> None:
         """Handle screen unmount."""
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.info(f"DownloadScreen unmounting")
+        logger.info("DownloadScreen unmounting")
 
         self._is_mounted = False
         # Cancel download if still active
@@ -93,10 +92,6 @@ class DownloadScreen(Screen):
 
     async def download_worker(self):
         """Worker to handle the download."""
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         try:
             logger.info(f"Starting download worker for {self.repo_id}")
             app = self.app
@@ -104,14 +99,11 @@ class DownloadScreen(Screen):
             # Create progress callback wrapper that updates UI directly
             def progress_callback_wrapper(progress_data: dict) -> None:
                 """Wrapper to update UI with progress."""
-                logger.debug(
-                    f"Progress callback wrapper called: {progress_data.get('current_file', 'N/A')}"
-                )
+                logger.debug(f"Progress callback: {progress_data.get('current_file', 'N/A')}")
                 # Update UI directly - we're already in the async main thread
-                # No need for message passing since download_worker runs via run_worker()
                 self.update_progress(progress_data)
 
-            # Await the now-async download_model method
+            # Await the async download_model method
             logger.info("Calling download_model...")
             import time
 
@@ -144,25 +136,9 @@ class DownloadScreen(Screen):
             self.download_active = False
             raise
 
-    def on_progress_update(self, message: ProgressUpdate) -> None:
-        """Handle progress update messages from worker thread."""
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.info(
-            f"UI UPDATE: {message.progress_data.get('current_file', 'unknown')} - {message.progress_data.get('overall_downloaded', 0)}/{message.progress_data.get('overall_total', 0)} bytes"
-        )
-        self.update_progress(message.progress_data)
-
     def update_progress(self, progress_data: dict):
-        """Update progress display."""
-        import logging
+        """Update progress display with comprehensive error handling."""
         from src.utils.helpers import format_size, format_speed, format_time
-
-        logger = logging.getLogger(__name__)
-        logger.debug(
-            f"PROGRESS CALLBACK: {progress_data.get('current_file', 'unknown')} - {progress_data.get('overall_downloaded', 0)}/{progress_data.get('overall_total', 0)} bytes"
-        )
 
         # Guard against updates after unmount
         if not self._is_mounted:
@@ -170,113 +146,113 @@ class DownloadScreen(Screen):
             return
 
         try:
-            # Overall progress
-            overall_pct = (
-                progress_data.get("overall_downloaded", 0)
-                / max(progress_data.get("overall_total", 1), 1)
-                * 100
-            )
-            overall_bar = self.query_one("#overall-progress", ProgressBar)
-            overall_bar.update(progress=overall_pct)
+            # === Overall Progress ===
+            overall_downloaded = progress_data.get("overall_downloaded", 0)
+            overall_total = progress_data.get("overall_total", 1)
+            overall_pct = (overall_downloaded / max(overall_total, 1)) * 100
 
-            # Progress label with percentage
-            progress_label = self.query_one("#progress-label", Label)
-            downloaded = format_size(progress_data.get("overall_downloaded", 0))
-            total = format_size(progress_data.get("overall_total", 0))
-            file_idx = progress_data.get("current_file_index", 0)
-            total_files = progress_data.get("total_files", 0)
+            # Update overall progress bar
+            try:
+                overall_bar = self.query_one("#overall-progress", ProgressBar)
+                overall_bar.update(progress=overall_pct)
+            except Exception as e:
+                logger.warning(f"Failed to update overall progress bar: {e}")
 
-            # Current file progress (needed for file count calculation)
-            file_pct = (
-                progress_data.get("current_file_downloaded", 0)
-                / max(progress_data.get("current_file_total", 1), 1)
-                * 100
-            )
+            # Update overall label
+            try:
+                overall_label = self.query_one("#overall-label", Label)
+                downloaded = format_size(overall_downloaded)
+                total = format_size(overall_total)
+                overall_label.update(f"{downloaded} / {total} ({int(overall_pct)}%)")
+            except Exception as e:
+                logger.warning(f"Failed to update overall label: {e}")
 
-            # Calculate files actually completed (not currently downloading)
-            files_completed = file_idx - 1 if file_pct < 100 else file_idx
-            if progress_data.get("completed", False):
-                files_completed = total_files
+            # === Current File Progress ===
+            current_file = progress_data.get("current_file", "Unknown")
+            current_file_downloaded = progress_data.get("current_file_downloaded", 0)
+            current_file_total = progress_data.get("current_file_total", 1)
+            file_pct = (current_file_downloaded / max(current_file_total, 1)) * 100
 
-            # Show percentage prominently
-            overall_pct_int = int(overall_pct)
-            progress_label.update(
-                f"{downloaded} / {total} ({overall_pct_int}%) - ({files_completed}/{total_files} files)"
-            )
+            # Update current file label
+            try:
+                file_label = self.query_one("#file-label", Label)
+                file_idx = progress_data.get("current_file_index", 0)
+                total_files = progress_data.get("total_files", 0)
+                file_label.update(f"{current_file} ({file_idx}/{total_files})")
+            except Exception as e:
+                logger.warning(f"Failed to update file label: {e}")
 
-            # Current file
-            current_file = progress_data.get("current_file", "")
-            file_label = self.query_one("#file-label", Label)
-            file_label.update(f"Current: {current_file}")
+            # Update file progress bar
+            try:
+                file_bar = self.query_one("#file-progress", ProgressBar)
+                file_bar.update(progress=file_pct)
+            except Exception as e:
+                logger.warning(f"Failed to update file progress bar: {e}")
 
-            # File progress bar
-            file_bar = self.query_one("#file-progress", ProgressBar)
-            file_bar.update(progress=file_pct)
-
-            # Speed with color coding and visual indicators
+            # === Download Statistics ===
             speed = progress_data.get("speed", 0)
-            speed_label = self.query_one("#speed-label", Label)
-
-            # Color-code speed based on performance with visual indicators
-            if speed > 10 * 1024 * 1024:  # > 10 MB/s
-                speed_text = f"[green]🚀 Speed: {format_speed(speed)}[/]"
-            elif speed > 1 * 1024 * 1024:  # > 1 MB/s
-                speed_text = f"[cyan]⚡ Speed: {format_speed(speed)}[/]"
-            elif speed > 100 * 1024:  # > 100 KB/s
-                speed_text = f"[yellow]📶 Speed: {format_speed(speed)}[/]"
-            elif speed > 0:  # Slow
-                speed_text = f"[red]🐌 Speed: {format_speed(speed)}[/]"
-            else:  # Stalled
-                speed_text = f"[red]⏸️  Speed: Stalled[/]"
-
-            speed_label.update(speed_text)
-
-            # ETA with smart stall detection
             eta = progress_data.get("eta", 0)
-            eta_label = self.query_one("#eta-label", Label)
 
-            # Calculate elapsed time for stall detection
-            elapsed = 0
-            if self._download_start_time:
-                import time
+            # Update speed label with color coding
+            try:
+                speed_label = self.query_one("#speed-label", Label)
+                if speed > 10 * 1024 * 1024:  # > 10 MB/s
+                    speed_text = f"[green]Speed: {format_speed(speed)}[/]"
+                elif speed > 1 * 1024 * 1024:  # > 1 MB/s
+                    speed_text = f"[cyan]Speed: {format_speed(speed)}[/]"
+                elif speed > 100 * 1024:  # > 100 KB/s
+                    speed_text = f"[yellow]Speed: {format_speed(speed)}[/]"
+                elif speed > 0:  # Slow
+                    speed_text = f"[red]Speed: {format_speed(speed)}[/]"
+                else:  # Stalled
+                    speed_text = "[red]Speed: Stalled[/]"
+                speed_label.update(speed_text)
+            except Exception as e:
+                logger.warning(f"Failed to update speed label: {e}")
 
-                elapsed = time.time() - self._download_start_time
-
-            # Show appropriate ETA based on download state
-            if speed < 1024 and elapsed > 5:  # Less than 1 KB/s after 5 seconds
-                eta_label.update("ETA: Download stalled")
-            elif eta > 0 and speed > 0:
-                eta_label.update(f"ETA: {format_time(eta)}")
-            elif elapsed < 3:
-                eta_label.update("ETA: Calculating...")
-            else:
-                eta_label.update("ETA: Unknown")
-
-            # Elapsed time
-            if self._download_start_time:
-                import time
-
-                elapsed = time.time() - self._download_start_time
-                elapsed_label = self.query_one("#elapsed-label", Label)
-                elapsed_label.update(f"Elapsed: {format_time(int(elapsed))}")
-
-            # Update status with resumed download indicator and visual icons
-            status_label = self.query_one("#status-label", Label)
-            status = progress_data.get("status", "downloading")
-
-            # Show "Resuming" if we have initial bytes with visual indicator
-            if status == "resuming":
-                initial_bytes = progress_data.get("initial_bytes", 0)
-                if initial_bytes > 0:
-                    status_label.update(
-                        f"[cyan]⏯️  Resuming download... ({format_size(initial_bytes)} already downloaded)[/]"
-                    )
+            # Update ETA label
+            try:
+                eta_label = self.query_one("#eta-label", Label)
+                if eta > 0 and speed > 0:
+                    eta_label.update(f"ETA: {format_time(eta)}")
+                elif speed > 0:
+                    eta_label.update("ETA: Calculating...")
                 else:
-                    status_label.update("[green]⬇️  Downloading...[/]")
-            elif status == "downloading":
-                status_label.update("[green]⬇️  Downloading...[/]")
-            else:
-                status_label.update(f"[cyan]{status}[/]")
+                    eta_label.update("ETA: Unknown")
+            except Exception as e:
+                logger.warning(f"Failed to update ETA label: {e}")
+
+            # Update elapsed time
+            try:
+                if self._download_start_time:
+                    import time
+
+                    elapsed = time.time() - self._download_start_time
+                    elapsed_label = self.query_one("#elapsed-label", Label)
+                    elapsed_label.update(f"Elapsed: {format_time(int(elapsed))}")
+            except Exception as e:
+                logger.warning(f"Failed to update elapsed label: {e}")
+
+            # === Status Update ===
+            try:
+                status_label = self.query_one("#status-label", Label)
+                status = progress_data.get("status", "downloading")
+
+                if status == "resuming":
+                    initial_bytes = progress_data.get("initial_bytes", 0)
+                    if initial_bytes > 0:
+                        status_label.update(
+                            f"[cyan]Resuming download ({format_size(initial_bytes)} already downloaded)[/]"
+                        )
+                    else:
+                        status_label.update("[green]Downloading...[/]")
+                elif status == "downloading":
+                    status_label.update("[green]Downloading...[/]")
+                else:
+                    status_label.update(f"[cyan]{status}[/]")
+            except Exception as e:
+                logger.warning(f"Failed to update status label: {e}")
+
         except Exception as e:
             logger.error(f"Error updating progress UI: {e}", exc_info=True)
 
@@ -288,7 +264,7 @@ class DownloadScreen(Screen):
 
         try:
             status_label = self.query_one("#status-label", Label)
-            status_label.update("[green]✅ Download completed successfully![/]")
+            status_label.update("[green]Download completed successfully![/]")
 
             overall_bar = self.query_one("#overall-progress", ProgressBar)
             overall_bar.update(progress=100)
@@ -302,12 +278,9 @@ class DownloadScreen(Screen):
             cancel_btn.variant = "primary"
 
             # Notify and refresh main screen
-            self.app.notify("✅ Download completed successfully!")
+            self.app.notify("Download completed successfully!")
             self.app.refresh_models()
         except Exception as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.error(f"Error in update_completion: {e}", exc_info=True)
 
     def update_error(self, message: str | None = None):
@@ -318,18 +291,15 @@ class DownloadScreen(Screen):
 
         try:
             status_label = self.query_one("#status-label", Label)
-            status_label.update("[red]❌ Download failed![/]")
+            status_label.update("[red]Download failed![/]")
 
             cancel_btn = self.query_one("#cancel-btn", Button)
             cancel_btn.label = "Close"
             cancel_btn.variant = "error"
 
             error_msg = message or "Download failed. Check logs for details."
-            self.app.notify(f"❌ {error_msg}", severity="error")
+            self.app.notify(error_msg, severity="error")
         except Exception as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.error(f"Error in update_error: {e}", exc_info=True)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

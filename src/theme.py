@@ -99,6 +99,12 @@ Footer {
     margin-bottom: 1;
 }
 
+.section-label {
+    color: $primary-bright;
+    text-style: bold;
+    margin-top: 1;
+}
+
 /* ===== DataTable ===== */
 DataTable {
     background: $surface;
