@@ -1,6 +1,7 @@
 """Download manager with byte-level progress monitoring."""
 
 import asyncio
+import hashlib
 import logging
 import shutil
 import time
@@ -9,8 +10,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from huggingface_hub import hf_hub_download
-from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE
 
+from src.services.cache_monitor import CacheMonitor
 from src.utils.helpers import ProgressCallback, ProgressData, DownloadSpeedCalculator, calculate_eta
 from src.exceptions import DownloadError, HuggingFaceError
 
@@ -34,6 +35,19 @@ class DownloadManager:
         self._speed_calculator = None
         self._is_resuming = False
         self._initial_bytes_before = 0
+        self._shutdown = False
+
+    def shutdown(self) -> None:
+        """Shutdown the executor gracefully."""
+        if not self._shutdown:
+            self._shutdown = True
+            self._cancelled = True
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            logger.info("DownloadManager executor shutdown")
+
+    def __del__(self):
+        """Cleanup executor on deletion."""
+        self.shutdown()
 
     async def download_model(
         self, repo_id: str, files: List[str], progress_callback: Optional[ProgressCallback] = None
@@ -150,6 +164,9 @@ class DownloadManager:
 
                         logger.info(f"Completed download of {filename}")
 
+                        # Verify checksum if available
+                        self._verify_checksum(file_path, None)
+
                     except asyncio.CancelledError:
                         logger.info(f"Download of {filename} cancelled")
                         raise
@@ -244,169 +261,54 @@ class DownloadManager:
             ),
         )
 
+        # Initialize cache monitor
+        cache_monitor = CacheMonitor(local_dir, filename)
+        initial_incomplete_size = cache_monitor.get_initial_incomplete_size()
+
         # Monitor progress while downloading
-        # When using local_dir, HF creates a LOCAL .cache inside that directory
-        local_cache_dir = local_dir / ".cache" / "huggingface"
-        local_cache_download = local_cache_dir / "download"
-
-        # Also check global cache as fallback
-        global_cache_dir = Path(HUGGINGFACE_HUB_CACHE)
-        global_cache_download = global_cache_dir / "download"
-
-        logger.info(f"Monitoring local cache: {local_cache_download}")
-        logger.debug(f"Fallback global cache: {global_cache_download}")
-
-        # Track initial size of incomplete file to avoid counting it twice
-        # This fixes the bug where resumed downloads show 100% immediately
-        initial_incomplete_size = 0
-        target_file = local_dir / filename
-
-        # Check all potential locations and record starting size
-        candidates = []
-
-        # Priority 1: Final file exists
-        if target_file.exists():
-            candidates.append((target_file.stat().st_mtime, target_file.stat().st_size))
-
-        # Priority 2: Local cache incomplete files
-        if local_cache_download.exists():
-            for f in local_cache_download.glob("*.incomplete"):
-                candidates.append((f.stat().st_mtime, f.stat().st_size))
-                logger.info(f"Found local cache incomplete: {f.name} ({f.stat().st_size} bytes)")
-
-        # Priority 3: Global cache incomplete files
-        if global_cache_download.exists():
-            for f in global_cache_download.glob("*.incomplete"):
-                candidates.append((f.stat().st_mtime, f.stat().st_size))
-                logger.info(f"Found global cache incomplete: {f.name} ({f.stat().st_size} bytes)")
-
-        # Use the most recently modified file's size as initial
-        if candidates:
-            candidates.sort(reverse=True)  # Most recent first
-            initial_incomplete_size = candidates[0][1]
-            logger.info(
-                f"Initial incomplete file size: {initial_incomplete_size:,} bytes "
-                f"(resuming download)"
-            )
-
-        # Try to find the incomplete file in HF cache
-        # HF creates *.incomplete or *.lock files during download
-        last_reported_size = 0  # Track what we last reported to avoid stale updates
-        last_update = time.time()
-        monitoring_found_file = False
-
         while not download_future.done():
             if self._cancelled:
                 download_future.cancel()
                 raise asyncio.CancelledError("Download cancelled by user")
 
-            # Look for the downloading file in multiple locations
-            target_file = local_dir / filename
-            current_size = 0
-            found_location = None
+            # Get current file size from cache
+            current_size, found_location = cache_monitor.get_current_size()
 
-            # Collect all candidates and pick most recently modified
-            candidates = []
-
-            # Priority 1: Check if final file exists and is growing
-            if target_file.exists():
-                candidates.append(
-                    (target_file.stat().st_mtime, target_file.stat().st_size, "target_file")
-                )
-
-            # Priority 2: Check LOCAL cache for incomplete files
-            if local_cache_download.exists():
-                incomplete_files = list(local_cache_download.glob("*.incomplete"))
-                for f in incomplete_files:
-                    candidates.append(
-                        (f.stat().st_mtime, f.stat().st_size, f"local_cache ({f.name})")
-                    )
-                    if not monitoring_found_file:
-                        logger.info(f"Found incomplete file: {f}")
-                        monitoring_found_file = True
-
-            # Priority 3: Check GLOBAL cache as fallback
-            if global_cache_download.exists():
-                incomplete_files = list(global_cache_download.glob("*.incomplete"))
-                for f in incomplete_files:
-                    candidates.append(
-                        (f.stat().st_mtime, f.stat().st_size, f"global_cache ({f.name})")
-                    )
-                    if not monitoring_found_file:
-                        logger.info(f"Found incomplete file in global cache: {f}")
-                        monitoring_found_file = True
-
-            # Use most recently modified source
-            if candidates:
-                candidates.sort(reverse=True)  # Most recent first
-                current_size = candidates[0][1]
-                found_location = candidates[0][2]
-
-            # Calculate overall progress for this iteration
-            # This must be done BEFORE the if/elif blocks to avoid UnboundLocalError
+            # Calculate overall progress
             overall_downloaded, new_bytes_this_session = self._calculate_overall_downloaded(
                 current_size, initial_incomplete_size, overall_downloaded_before
             )
 
-            # Send progress update ONLY if size actually changed
-            # This prevents stale data from corrupting speed calculations
-            now = time.time()
-            time_since_update = now - last_update
-            size_changed = current_size > last_reported_size
+            # Send progress update if appropriate
+            if progress_callback and cache_monitor.should_send_progress(current_size):
+                if current_size > 0:
+                    logger.debug(
+                        f"Progress update: {current_size}/{file_size} bytes "
+                        f"({current_size/file_size*100:.1f}%) from {found_location} "
+                        f"(new this session: {new_bytes_this_session:,})"
+                    )
 
-            # Log monitoring status periodically
-            if time_since_update >= 2.0 and not monitoring_found_file:
-                logger.warning(
-                    f"Still searching for download file. Checked: "
-                    f"local_cache={local_cache_download.exists()}, "
-                    f"global_cache={global_cache_download.exists()}, "
-                    f"target={target_file.exists()}"
+                self._send_progress(
+                    progress_callback,
+                    repo_id,
+                    filename,
+                    file_idx + 1,
+                    total_files,
+                    current_size,
+                    file_size,
+                    overall_downloaded,
+                    total_size,
+                    start_time,
                 )
-                last_update = now  # Reset to avoid spam
 
-            # Only send progress when bytes actually increase
-            if size_changed:
-                if progress_callback:
-                    if current_size > 0:
-                        logger.debug(
-                            f"Progress update: {current_size}/{file_size} bytes "
-                            f"({current_size/file_size*100:.1f}%) from {found_location} "
-                            f"(new this session: {new_bytes_this_session:,})"
-                        )
+                cache_monitor.update_tracking(current_size)
 
-                    self._send_progress(
-                        progress_callback,
-                        repo_id,
-                        filename,
-                        file_idx + 1,
-                        total_files,
-                        current_size,
-                        file_size,
-                        overall_downloaded,
-                        total_size,
-                        start_time,
-                    )
-                last_reported_size = current_size
-                last_update = now
-            elif time_since_update >= PROGRESS_HEARTBEAT_INTERVAL:
-                # Heartbeat - send progress update to keep UI alive even when size doesn't change
-                # This prevents the UI from appearing frozen during slow periods
-                if progress_callback:
-                    self._send_progress(
-                        progress_callback,
-                        repo_id,
-                        filename,
-                        file_idx + 1,
-                        total_files,
-                        current_size,
-                        file_size,
-                        overall_downloaded,
-                        total_size,
-                        start_time,
-                    )
-                last_update = now
+            # Log periodic monitoring status
+            warning = cache_monitor.log_monitoring_status()
+            if warning:
+                logger.warning(warning)
 
-            # Sleep briefly before next check for smoother updates
+            # Sleep briefly before next check
             await asyncio.sleep(PROGRESS_POLL_INTERVAL)
 
         # Wait for download to complete
@@ -501,6 +403,61 @@ class DownloadManager:
         """Cancel the current download."""
         self._cancelled = True
         logger.info("Download cancellation requested")
+
+    def _calculate_sha256(self, file_path: Path) -> str:
+        """
+        Calculate SHA256 checksum of a file.
+
+        Args:
+            file_path: Path to file to calculate checksum for
+
+        Returns:
+            Hexadecimal SHA256 checksum
+        """
+        sha256_hash = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            # Read file in chunks to handle large files
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
+
+    def _verify_checksum(self, file_path: Path, expected_checksum: Optional[str]) -> bool:
+        """
+        Verify file checksum against expected value.
+
+        Args:
+            file_path: Path to file to verify
+            expected_checksum: Expected SHA256 checksum (hex string), or None to skip
+
+        Returns:
+            True if checksum matches or no expected checksum, False otherwise
+
+        Raises:
+            DownloadError: If file doesn't exist or checksum doesn't match
+        """
+        if not file_path.exists():
+            logger.error(f"File not found for checksum verification: {file_path}")
+            raise DownloadError(f"File not found: {file_path}")
+
+        if expected_checksum is None:
+            logger.info("No expected checksum provided, skipping verification")
+            return True
+
+        logger.info(f"Verifying checksum for {file_path.name}...")
+        actual_checksum = self._calculate_sha256(file_path)
+
+        if actual_checksum == expected_checksum:
+            logger.info(f"Checksum verified: {file_path.name}")
+            return True
+        else:
+            logger.error(
+                f"Checksum mismatch for {file_path.name}: "
+                f"expected {expected_checksum[:16]}..., "
+                f"got {actual_checksum[:16]}..."
+            )
+            raise DownloadError(
+                f"Checksum mismatch for {file_path.name}. " f"File may be corrupted."
+            )
 
     async def validate_download(
         self, repo_id: str, files: List[str], total_size: int

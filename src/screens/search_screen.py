@@ -11,7 +11,7 @@ from textual.binding import Binding
 
 from src.widgets.loading import LoadingSpinner
 from src.widgets.section_header import SectionHeader
-from src.exceptions import HuggingFaceError
+from src.exceptions import HuggingFaceError, NetworkError
 
 
 class SearchScreen(Screen):
@@ -130,6 +130,9 @@ class SearchScreen(Screen):
 
             self.search_results = results
             self.update_results()
+        except NetworkError as e:
+            self.app.notify(f"Network error: {e}", severity="error")
+            self.update_results_error()
         except HuggingFaceError as e:
             self.app.notify(f"Search failed: {e}", severity="error")
             self.update_results_error()

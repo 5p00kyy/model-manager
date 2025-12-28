@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from src.exceptions import StorageError
+
 logger = logging.getLogger(__name__)
 
 
@@ -114,7 +116,10 @@ class StorageManager:
             repo_id: Repository ID
 
         Returns:
-            True if successful, False otherwise
+            True if successful
+
+        Raises:
+            StorageError: If deletion fails
         """
         try:
             model_path = self.get_model_path(repo_id)
@@ -128,9 +133,12 @@ class StorageManager:
                 self._save_metadata()
 
             return True
-        except Exception as e:
-            logger.error(f"Error deleting model {repo_id}: {e}")
-            return False
+        except PermissionError as e:
+            logger.error(f"Permission denied deleting model {repo_id}: {e}", exc_info=True)
+            raise StorageError(f"Permission denied: {e}") from e
+        except OSError as e:
+            logger.error(f"OS error deleting model {repo_id}: {e}", exc_info=True)
+            raise StorageError(f"Failed to delete model: {e}") from e
 
     def save_model_metadata(
         self,
@@ -191,8 +199,8 @@ class StorageManager:
             # Get total disk space
             stat = shutil.disk_usage(self.models_dir)
             return (used, stat.total)
-        except Exception as e:
-            logger.error(f"Error getting storage usage: {e}")
+        except OSError as e:
+            logger.error(f"Error getting storage usage: {e}", exc_info=True)
             return (0, 0)
 
     def get_available_space(self) -> int:
@@ -205,8 +213,8 @@ class StorageManager:
         try:
             stat = shutil.disk_usage(self.models_dir)
             return stat.free
-        except Exception as e:
-            logger.error(f"Error getting available space: {e}")
+        except OSError as e:
+            logger.error(f"Error getting available space: {e}", exc_info=True)
             return 0
 
     def _load_metadata(self) -> dict[str, dict[str, Any]]:
@@ -220,16 +228,28 @@ class StorageManager:
             try:
                 with open(self.metadata_file, "r") as f:
                     return json.load(f)
-            except Exception as e:
-                logger.error(f"Error loading metadata: {e}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in metadata file: {e}", exc_info=True)
+                return {}
+            except OSError as e:
+                logger.error(f"Error reading metadata file: {e}", exc_info=True)
                 return {}
         return {}
 
-    def _save_metadata(self):
-        """Save metadata to file."""
+    def _save_metadata(self) -> None:
+        """
+        Save metadata to file.
+
+        Raises:
+            StorageError: If saving fails
+        """
         try:
             self.metadata_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.metadata_file, "w") as f:
                 json.dump(self.metadata, f, indent=2)
-        except Exception as e:
-            logger.error(f"Error saving metadata: {e}")
+        except PermissionError as e:
+            logger.error(f"Permission denied saving metadata: {e}", exc_info=True)
+            raise StorageError(f"Permission denied: {e}") from e
+        except OSError as e:
+            logger.error(f"Error saving metadata: {e}", exc_info=True)
+            raise StorageError(f"Failed to save metadata: {e}") from e

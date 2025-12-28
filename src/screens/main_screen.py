@@ -10,7 +10,7 @@ from textual.binding import Binding
 from src.utils.helpers import format_size
 from src.widgets.section_header import SectionHeader
 from src.widgets.modal import Modal
-from src.exceptions import ModelManagerException
+from src.exceptions import ModelManagerException, StorageError
 
 
 class MainScreen(Screen):
@@ -208,8 +208,8 @@ class MainScreen(Screen):
             if self.app.storage.delete_model(repo_id):
                 self.app.notify(f"Deleted {repo_id}")
                 self.action_refresh()
-            else:
-                self.app.notify(f"Failed to delete {repo_id}", severity="error")
+        except StorageError as e:
+            self.app.notify(f"Failed to delete: {e}", severity="error")
         except ModelManagerException as e:
             self.app.notify(f"Error deleting model: {e}", severity="error")
 

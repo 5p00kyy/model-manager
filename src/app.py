@@ -13,6 +13,7 @@ from src.services.hf_client import HuggingFaceClient
 from src.services.storage import StorageManager
 from src.services.downloader import DownloadManager
 from src.services.updater import UpdateChecker
+from src.widgets.modal import Modal
 
 # Configure logging
 logging.basicConfig(
@@ -32,7 +33,7 @@ class ModelManagerApp(App):
     TITLE = f"{APP_NAME} v{APP_VERSION}"
 
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
+        Binding("q", "request_quit", "Quit"),
         Binding("s", "search", "Search", show=True),
         Binding("r", "refresh", "Refresh", show=True),
         ("?", "help", "Help"),
@@ -160,8 +161,30 @@ class ModelManagerApp(App):
         self.run_worker(self.check_updates_async(), exclusive=True)
 
     def action_help(self) -> None:
-        """Show help."""
-        self.notify("Keyboard shortcuts: S=Search, R=Refresh, Q=Quit")
+        """Show help screen."""
+        from src.screens.help_screen import HelpScreen
+
+        self.push_screen(HelpScreen())
+
+    def action_request_quit(self) -> None:
+        """Request quit with confirmation if download is active."""
+        if self.current_download:
+            # Show confirmation modal
+            async def handle_confirm(result: bool | None) -> None:
+                if result:
+                    # Force cancel and quit
+                    self.downloader.cancel_download()
+                    self.exit()
+
+            self.push_screen(
+                Modal(
+                    title_text="Confirm Quit",
+                    message="A download is in progress. Are you sure you want to quit?",
+                ),
+                callback=handle_confirm,
+            )
+        else:
+            self.exit()
 
 
 def run():

@@ -5,7 +5,7 @@ from pathlib import Path
 
 # Application metadata
 APP_NAME = "Model Manager"
-APP_VERSION = "2.5.0"
+APP_VERSION = "2.5.1"
 
 # Directory paths
 BASE_DIR = Path(__file__).parent.parent
@@ -19,7 +19,7 @@ MODELS_DIR.mkdir(exist_ok=True)
 # HuggingFace settings
 GGUF_TAG = "gguf"
 MAX_SEARCH_RESULTS = 50
-MULTIPART_REGEX = r"(.+)-(\d{1,5})-of-(\d{1,5})\.gguf$"
+# Note: MULTIPART_REGEX is defined in src/utils/helpers.py
 
 # Enable faster downloads (requires hf_transfer package)
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
